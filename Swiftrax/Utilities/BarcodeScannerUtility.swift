@@ -16,9 +16,12 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
     
     @Published var isScanning = false
     @Published var torchEnabled = false
-    @Published var lastDetectedBarcode: String = "" // NEW: Published property for boolean approach
+    @Published var lastDetectedBarcode: String = ""
     
+    // FIXED: Thread-safe scanning state
     private var canScan = true
+    private let scanningQueue = DispatchQueue(label: "com.swiftrax.barcode.scanning", qos: .userInitiated)
+    private var isProcessingBarcode = false
     
     override init() {
         super.init()
@@ -31,14 +34,18 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
         captureSession = AVCaptureSession()
         
         guard let captureSession = captureSession else {
-            delegate?.didFailWithError(ScannerError.noCameraAvailable)
+            DispatchQueue.main.async {
+                self.delegate?.didFailWithError(ScannerError.noCameraAvailable)
+            }
             return
         }
         
         captureSession.sessionPreset = .high
         
         guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            delegate?.didFailWithError(ScannerError.noCameraAvailable)
+            DispatchQueue.main.async {
+                self.delegate?.didFailWithError(ScannerError.noCameraAvailable)
+            }
             return
         }
         
@@ -49,7 +56,9 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
         do {
             videoInput = try AVCaptureDeviceInput(device: videoCaptureDevice)
         } catch {
-            delegate?.didFailWithError(error)
+            DispatchQueue.main.async {
+                self.delegate?.didFailWithError(error)
+            }
             return
         }
         
@@ -57,7 +66,9 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
             captureSession.addInput(videoInput)
             print("📱 Video input added successfully")
         } else {
-            delegate?.didFailWithError(ScannerError.invalidInput)
+            DispatchQueue.main.async {
+                self.delegate?.didFailWithError(ScannerError.invalidInput)
+            }
             return
         }
         
@@ -66,6 +77,7 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
         if captureSession.canAddOutput(metadataOutput) {
             captureSession.addOutput(metadataOutput)
             
+            // FIXED: Set delegate on main queue to avoid thread issues
             metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
             metadataOutput.metadataObjectTypes = [
                 .ean8, .ean13, .pdf417, .qr, .aztec, .code128, .code93, .code39, .upce
@@ -73,7 +85,9 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
             
             print("📱 Metadata output configured")
         } else {
-            delegate?.didFailWithError(ScannerError.invalidOutput)
+            DispatchQueue.main.async {
+                self.delegate?.didFailWithError(ScannerError.invalidOutput)
+            }
             return
         }
         
@@ -102,35 +116,42 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
         }
     }
     
+    // FIXED: Thread-safe scanning control
     func startScanning() {
         guard let captureSession = captureSession else { return }
         
-        // RESET: Clear previous barcode and enable scanning
-        canScan = true
-        lastDetectedBarcode = ""
-        
-        if !captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        scanningQueue.async {
+            // RESET: Clear previous barcode and enable scanning
+            self.canScan = true
+            self.isProcessingBarcode = false
+            
+            DispatchQueue.main.async {
+                self.lastDetectedBarcode = ""
+            }
+            
+            if !captureSession.isRunning {
                 captureSession.startRunning()
                 DispatchQueue.main.async {
-                    self?.isScanning = true
+                    self.isScanning = true
                     print("📱 Camera scanning started")
                 }
             }
         }
     }
     
+    // FIXED: Thread-safe scanning control
     func stopScanning() {
         guard let captureSession = captureSession else { return }
         
-        // DISABLE: Stop scanning
-        canScan = false
-        
-        if captureSession.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        scanningQueue.async {
+            // DISABLE: Stop scanning
+            self.canScan = false
+            self.isProcessingBarcode = false
+            
+            if captureSession.isRunning {
                 captureSession.stopRunning()
                 DispatchQueue.main.async {
-                    self?.isScanning = false
+                    self.isScanning = false
                     print("📱 Camera scanning stopped")
                 }
             }
@@ -143,14 +164,16 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
         do {
             try device.lockForConfiguration()
             
-            if torchEnabled {
-                device.torchMode = .off
-                torchEnabled = false
-                print("📱 Torch turned OFF")
-            } else {
-                try device.setTorchModeOn(level: 1.0)
-                torchEnabled = true
-                print("📱 Torch turned ON")
+            DispatchQueue.main.async {
+                if self.torchEnabled {
+                    device.torchMode = .off
+                    self.torchEnabled = false
+                    print("📱 Torch turned OFF")
+                } else {
+                    try? device.setTorchModeOn(level: 1.0)
+                    self.torchEnabled = true
+                    print("📱 Torch turned ON")
+                }
             }
             
             device.unlockForConfiguration()
@@ -172,13 +195,13 @@ class BarcodeScannerUtility: NSObject, ObservableObject {
     }
 }
 
-// FIXED: Ensure delegate is called AND published property is updated
+// FIXED: Thread-safe barcode detection with proper main thread handling
 extension BarcodeScannerUtility: AVCaptureMetadataOutputObjectsDelegate {
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         
-        // Check if we can still scan
-        guard canScan else {
-            print("📱 Scanning disabled, ignoring detection")
+        // Check if we can still scan (already on main thread)
+        guard canScan && !isProcessingBarcode else {
+            print("📱 Scanning disabled, ignoring detection (canScan: \(canScan), isProcessing: \(isProcessingBarcode))")
             return
         }
         
@@ -186,22 +209,22 @@ extension BarcodeScannerUtility: AVCaptureMetadataOutputObjectsDelegate {
         guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject else { return }
         guard let stringValue = readableObject.stringValue else { return }
         
-        // DISABLE further scanning immediately
+        // FIXED: Immediate processing flag to prevent race conditions
+        isProcessingBarcode = true
         canScan = false
         
         print("📱 Barcode detected: \(stringValue)")
         
-        // Haptic feedback
+        // Haptic feedback (already on main thread)
         AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
         
-        // BOTH approaches: Update published property AND call delegate
-        DispatchQueue.main.async {
-            print("📱 📡 PUBLISHING barcode to @Published property: \(stringValue)")
-            self.lastDetectedBarcode = stringValue
-            
-            print("📱 📞 CALLING delegate with barcode: \(stringValue)")
-            self.delegate?.didScanBarcode(stringValue)
-        }
+        // FIXED: Update published property on main thread (we're already on main thread)
+        print("📱 📡 PUBLISHING barcode to @Published property: \(stringValue)")
+        self.lastDetectedBarcode = stringValue
+        
+        // FIXED: Call delegate on main thread (we're already on main thread)
+        print("📱 📞 CALLING delegate with barcode: \(stringValue)")
+        self.delegate?.didScanBarcode(stringValue)
     }
 }
 

@@ -324,38 +324,52 @@ class HistoryViewModelMain: ObservableObject {
     
     func loadHistory(for timeRange: TimeRange) {
         isLoading = true
+        print("📊 HistoryViewModel: Starting to load history for \(timeRange.rawValue)")
         
-        DispatchQueue.global(qos: .background).async {
-            let endDate = Date()
-            let startDate = timeRange.startDate(from: endDate)
+        let endDate = Date()
+        let startDate = timeRange.startDate(from: endDate)
+        
+        // FIXED: Use thread-safe database access
+        databaseManager.getAllFoodEntriesThreadSafe(from: startDate, to: endDate) { allEntries in
+            print("📊 HistoryViewModel: Retrieved \(allEntries.count) total entries")
             
-            var dailyDataArray: [DailyNutritionData] = []
-            var currentDate = startDate
-            
-            while currentDate <= endDate {
-                let dayEntries = self.databaseManager.getFoodEntries(for: currentDate)
-                let totalNutrition = dayEntries.totalNutrition()
+            // Process entries into daily data on background queue
+            DispatchQueue.global(qos: .background).async {
+                var dailyDataArray: [DailyNutritionData] = []
+                var currentDate = startDate
+                let calendar = Calendar.current
                 
-                let dailyData = DailyNutritionData(
-                    date: currentDate,
-                    totalCalories: totalNutrition.calories ?? 0,
-                    totalProtein: totalNutrition.protein ?? 0,
-                    totalCarbs: totalNutrition.carbohydrates ?? 0,
-                    totalFat: totalNutrition.fat ?? 0,
-                    entryCount: dayEntries.count
-                )
-                
-                // Only include days with data
-                if dailyData.entryCount > 0 {
-                    dailyDataArray.append(dailyData)
+                while currentDate <= endDate {
+                    // Filter entries for this date
+                    let dayEntries = allEntries.filter { entry in
+                        calendar.isDate(entry.dateLogged, inSameDayAs: currentDate)
+                    }
+                    
+                    if !dayEntries.isEmpty {
+                        let totalNutrition = dayEntries.totalNutrition()
+                        
+                        let dailyData = DailyNutritionData(
+                            date: currentDate,
+                            totalCalories: totalNutrition.calories ?? 0,
+                            totalProtein: totalNutrition.protein ?? 0,
+                            totalCarbs: totalNutrition.carbohydrates ?? 0,
+                            totalFat: totalNutrition.fat ?? 0,
+                            entryCount: dayEntries.count
+                        )
+                        
+                        dailyDataArray.append(dailyData)
+                        print("📊 HistoryViewModel: \(currentDate): \(dayEntries.count) entries, \(Int(dailyData.totalCalories)) calories")
+                    }
+                    
+                    currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? endDate
                 }
                 
-                currentDate = currentDate.adding(days: 1)
-            }
-            
-            DispatchQueue.main.async {
-                self.dailyData = dailyDataArray
-                self.isLoading = false
+                // Update UI on main thread
+                DispatchQueue.main.async {
+                    self.dailyData = dailyDataArray
+                    self.isLoading = false
+                    print("📊 HistoryViewModel: Completed loading \(dailyDataArray.count) days of data")
+                }
             }
         }
     }

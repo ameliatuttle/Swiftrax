@@ -3,50 +3,55 @@ import SwiftUI
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModelMain()
     
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Horizontal Nutrition Summary
-                    HorizontalNutritionSummaryView(
-                        totalNutrition: viewModel.dailyNutrition,
-                        goals: viewModel.userSettings.nutritionGoals,
-                        trackingPreferences: viewModel.userSettings.trackingPreferences
-                    )
-                    
-                    // Meal Sections
-                    ForEach(MealType.allCases, id: \.self) { mealType in
-                        MealSectionView(
-                            mealType: mealType,
-                            entries: viewModel.foodEntries.filteredByMealType(mealType),
-                            onDeleteEntry: { entry in
-                                viewModel.deleteEntry(entry)
-                            }
-                        )
-                    }
-                    
-                    Spacer()
-                }
-                .padding()
-            }
-            .background(Color.appBackground) // Consistent grouped background
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Dashboard")
-            .navigationBarTitleDisplayMode(.inline)
-            .refreshable {
-                viewModel.loadEntries(for: Date())
-                viewModel.loadUserSettings()
-            }
-            .onAppear {
-                Swift.print("📊 Dashboard: View appeared")
-                viewModel.setupNotificationObserver()
-                viewModel.loadEntries(for: Date())
-                viewModel.loadUserSettings()
-            }
-        }
-        .navigationViewStyle(StackNavigationViewStyle())
-    }
-   
+   var body: some View {
+       NavigationView {
+           ScrollView {
+               VStack(spacing: 16) {
+                   // Horizontal Nutrition Summary
+                   HorizontalNutritionSummaryView(
+                       totalNutrition: viewModel.dailyNutrition,
+                       goals: viewModel.userSettings.nutritionGoals,
+                       trackingPreferences: viewModel.userSettings.trackingPreferences
+                   )
+                   
+                   // Meal Sections
+                   ForEach(MealType.allCases, id: \.self) { mealType in
+                       MealSectionView(
+                           mealType: mealType,
+                           entries: viewModel.foodEntries.filteredByMealType(mealType),
+                           onDeleteEntry: { entry in
+                               viewModel.deleteEntry(entry)
+                           }
+                       )
+                   }
+                   
+                   Spacer()
+               }
+               .padding()
+           }
+           .background(Color.appBackground)
+           .frame(maxWidth: .infinity, maxHeight: .infinity)
+           .navigationTitle("Dashboard")
+           .navigationBarTitleDisplayMode(.inline)
+           .refreshable {
+               // FIXED: Use Task to avoid state modification during refreshable
+               await MainActor.run {
+                   viewModel.loadEntries(for: Date())
+                   viewModel.loadUserSettings()
+               }
+           }
+           .onAppear {
+               Swift.print("📊 Dashboard: View appeared")
+               viewModel.setupNotificationObserver()
+               // FIXED: Use Task to avoid state modification during onAppear
+               Task { @MainActor in
+                   viewModel.loadEntries(for: Date())
+                   viewModel.loadUserSettings()
+               }
+           }
+       }
+       .navigationViewStyle(StackNavigationViewStyle())
+   }
 }
 
 // MARK: - Horizontal Nutrition Summary
@@ -217,9 +222,11 @@ class DashboardViewModelMain: ObservableObject {
     private let databaseManager = DatabaseManager.shared
     private var hasSetupObserver = false
     
+    // FIXED: Remove objectWillChange.send() calls that cause state modification warnings
     var dailyNutrition: NutritionInfo {
         let nutrition = foodEntries.totalNutrition()
-        Swift.print("📊 Dashboard: Calculated daily nutrition - Calories: \(nutrition.calories ?? 0)")
+        // REMOVED: Don't call objectWillChange.send() here - it causes state modification warnings
+        // The @Published property changes will automatically trigger UI updates
         return nutrition
     }
     
@@ -233,39 +240,72 @@ class DashboardViewModelMain: ObservableObject {
             queue: .main
         ) { _ in
             Swift.print("📢 Dashboard: Received FoodEntryAdded notification, refreshing...")
-            self.loadEntries(for: Date())
+            // FIXED: Use Task to avoid state modification during notification handling
+            Task { @MainActor in
+                self.loadEntries(for: Date())
+            }
         }
         hasSetupObserver = true
     }
     
+    // FIXED: Use @MainActor for proper state management
+    @MainActor
     func loadEntries(for date: Date) {
         Swift.print("📊 Dashboard: Loading entries for \(DateFormatters.shared.dayFormatter.string(from: date))")
         isLoading = true
         
-        DatabaseManager.shared.getFoodEntriesThreadSafe(for: date) { entries in
-            Swift.print("📊 Dashboard: Found \(entries.count) entries in database")
-            for entry in entries {
-                Swift.print("📊 Dashboard: Entry - \(entry.food.name) (\(entry.mealType.rawValue)) - \(entry.food.nutritionInfo.calories ?? 0) cal")
+        // FIXED: Use thread-safe method consistently
+        databaseManager.getFoodEntriesThreadSafe(for: date) { entries in
+            // FIXED: Ensure UI updates happen on main thread using Task
+            Task { @MainActor in
+                Swift.print("📊 Dashboard: Found \(entries.count) entries in database")
+                for entry in entries {
+                    Swift.print("📊 Dashboard: Entry - \(entry.food.name) (\(entry.mealType.rawValue)) - \(entry.food.nutritionInfo.calories ?? 0) cal")
+                }
+                
+                self.foodEntries = entries
+                self.isLoading = false
+                Swift.print("📊 Dashboard: Updated UI with \(entries.count) entries")
+                
+                // REMOVED: Don't manually call objectWillChange.send() - SwiftUI handles this automatically
+                // when @Published properties change
             }
-            
-            self.foodEntries = entries
-            self.isLoading = false
-            Swift.print("📊 Dashboard: Updated UI with \(entries.count) entries")
-            
-            // Force UI update for nutrition summary
-            self.objectWillChange.send()
         }
     }
     
+    @MainActor
     func loadUserSettings() {
-        DatabaseManager.shared.getUserSettingsAsync { user in
-            self.userSettings = user
+        databaseManager.getUserSettingsAsync { user in
+            // FIXED: Ensure UI updates happen on main thread using Task
+            Task { @MainActor in
+                self.userSettings = user
+            }
         }
     }
     
+    // FIXED: Add thread-safe delete method with proper state management
+    @MainActor
     func deleteEntry(_ entry: FoodEntry) {
+        Swift.print("🗑️ Dashboard: Deleting entry: \(entry.food.name)")
+        
+        // Remove from local array immediately for UI responsiveness
         foodEntries.removeAll { $0.id == entry.id }
-        // TODO: Implement database deletion
+        
+        // Delete from database on background thread
+        databaseManager.deleteEntryThreadSafe(entry) { success in
+            // FIXED: Use Task for proper main thread handling
+            Task { @MainActor in
+                if success {
+                    Swift.print("✅ Dashboard: Entry deleted successfully")
+                    // Refresh to ensure consistency
+                    self.loadEntries(for: Date())
+                } else {
+                    Swift.print("❌ Dashboard: Failed to delete entry")
+                    // Reload to restore UI state
+                    self.loadEntries(for: Date())
+                }
+            }
+        }
     }
     
     deinit {

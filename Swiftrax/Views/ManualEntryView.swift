@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - Fix ManualEntryView State Management
+
 struct ManualEntryView: View {
     @State private var mealType: MealType = .breakfast
     @State private var foodName = ""
@@ -17,6 +19,15 @@ struct ManualEntryView: View {
     @State private var successMessage = ""
     @State private var showingUnitPicker = false
     @State private var isAdvancedMode = false
+    @State private var showingValidationError = false
+    @State private var validationErrorMessage = ""
+    
+    // FIXED: Add focus states for proper keyboard management
+    @FocusState private var focusedField: Field?
+    
+    enum Field {
+        case foodName, brand, servingSize, calories, protein, carbohydrates, fat, fiber, sugar, sodium
+    }
     
     @Environment(\.presentationMode) var presentationMode
     
@@ -41,27 +52,36 @@ struct ManualEntryView: View {
                 // Food Information
                 Section("Food Information") {
                     TextField("Food name", text: $foodName)
+                        .focused($focusedField, equals: .foodName)
                         .autocapitalization(.words)
-                        .onChange(of: foodName) { _ in
-                            print("🍎 Food name changed to: '\(foodName)'")
+                        .onSubmit {
+                            focusedField = .brand
                         }
                     
                     TextField("Brand (optional)", text: $brand)
+                        .focused($focusedField, equals: .brand)
                         .autocapitalization(.words)
+                        .onSubmit {
+                            focusedField = .servingSize
+                        }
                 }
                 
                 // Enhanced Serving Size with Unit Picker
                 Section("Serving Size") {
                     HStack {
                         TextField("Amount", text: $servingSize)
+                            .focused($focusedField, equals: .servingSize)
                             .keyboardType(.decimalPad)
                             .frame(maxWidth: .infinity)
-                            .onChange(of: servingSize) { _ in
-                                print("📏 Serving size changed to: '\(servingSize)'")
+                            .onSubmit {
+                                focusedField = .calories
                             }
                         
                         Button(action: {
-                            showingUnitPicker = true
+                            focusedField = nil // Dismiss keyboard before showing picker
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                showingUnitPicker = true
+                            }
                         }) {
                             HStack(spacing: 4) {
                                 Text(servingUnit.displayName)
@@ -98,18 +118,81 @@ struct ManualEntryView: View {
                 
                 // Basic Nutrition Information
                 Section("Basic Nutrition (per \(servingSize.isEmpty ? "1" : servingSize) \(servingUnit.displayName.lowercased()))") {
-                    NutritionInputRow(label: "Calories", value: $calories, unit: "kcal")
-                    NutritionInputRow(label: "Protein", value: $protein, unit: "g")
-                    NutritionInputRow(label: "Carbohydrates", value: $carbohydrates, unit: "g")
-                    NutritionInputRow(label: "Fat", value: $fat, unit: "g")
+                    NutritionInputRow(
+                        label: "Calories",
+                        value: $calories,
+                        unit: "kcal",
+                        focusedField: $focusedField,
+                        field: .calories,
+                        nextField: .protein
+                    )
+                    
+                    NutritionInputRow(
+                        label: "Protein",
+                        value: $protein,
+                        unit: "g",
+                        focusedField: $focusedField,
+                        field: .protein,
+                        nextField: .carbohydrates
+                    )
+                    
+                    NutritionInputRow(
+                        label: "Carbohydrates",
+                        value: $carbohydrates,
+                        unit: "g",
+                        focusedField: $focusedField,
+                        field: .carbohydrates,
+                        nextField: .fat
+                    )
+                    
+                    NutritionInputRow(
+                        label: "Fat",
+                        value: $fat,
+                        unit: "g",
+                        focusedField: $focusedField,
+                        field: .fat,
+                        nextField: nil
+                    )
                 }
                 
                 // Advanced Nutrition (Optional)
                 Section {
                     DisclosureGroup("Additional Nutrients", isExpanded: $isAdvancedMode) {
-                        NutritionInputRow(label: "Fiber", value: $fiber, unit: "g")
-                        NutritionInputRow(label: "Sugar", value: $sugar, unit: "g")
-                        NutritionInputRow(label: "Sodium", value: $sodium, unit: "mg")
+                        NutritionInputRow(
+                            label: "Fiber",
+                            value: $fiber,
+                            unit: "g",
+                            focusedField: $focusedField,
+                            field: .fiber,
+                            nextField: .sugar
+                        )
+                        
+                        NutritionInputRow(
+                            label: "Sugar",
+                            value: $sugar,
+                            unit: "g",
+                            focusedField: $focusedField,
+                            field: .sugar,
+                            nextField: .sodium
+                        )
+                        
+                        NutritionInputRow(
+                            label: "Sodium",
+                            value: $sodium,
+                            unit: "mg",
+                            focusedField: $focusedField,
+                            field: .sodium,
+                            nextField: nil
+                        )
+                    }
+                }
+                
+                // Validation Error Display
+                if !validationErrorMessage.isEmpty {
+                    Section {
+                        Text(validationErrorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
                     }
                 }
                 
@@ -143,15 +226,7 @@ struct ManualEntryView: View {
                 
                 // Save Button
                 Section {
-                    Button(action: {
-                        print("🎯 CREATE FOOD BUTTON TAPPED!")
-                        print("🔍 Current form state:")
-                        print("   - Food name: '\(foodName)'")
-                        print("   - Serving size: '\(servingSize)' \(servingUnit.abbreviation)")
-                        print("   - Meal type: '\(mealType.rawValue)'")
-                        print("   - Is valid: \(isValid)")
-                        saveFood()
-                    }) {
+                    Button(action: saveFood) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
                             Text("Add to \(mealType.rawValue)")
@@ -165,9 +240,38 @@ struct ManualEntryView: View {
             }
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                print("📱 Enhanced ManualEntryView appeared")
+            // FIXED: Add keyboard toolbar
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    HStack {
+                        Button("Previous") {
+                            moveToPreviousField()
+                        }
+                        .disabled(!canMoveToPrevious())
+                        
+                        Button("Next") {
+                            moveToNextField()
+                        }
+                        .disabled(!canMoveToNext())
+                        
+                        Spacer()
+                        
+                        Button("Done") {
+                            focusedField = nil
+                        }
+                    }
+                }
             }
+            .onAppear {
+                // FIXED: Use Task for state updates
+                Task { @MainActor in
+                    validateForm()
+                }
+            }
+            // FIXED: Add onChange for real-time validation without state modification warnings
+            .onChange(of: foodName) { _ in validateFormAsync() }
+            .onChange(of: servingSize) { _ in validateFormAsync() }
+            .onChange(of: calories) { _ in validateFormAsync() }
         }
         .sheet(isPresented: $showingUnitPicker) {
             NavigationView {
@@ -176,6 +280,7 @@ struct ManualEntryView: View {
                         Button(action: {
                             servingUnit = unit
                             showingUnitPicker = false
+                            validateFormAsync()
                         }) {
                             HStack {
                                 Text(unit.displayName)
@@ -208,136 +313,247 @@ struct ManualEntryView: View {
         } message: {
             Text(successMessage)
         }
+        .alert("Validation Error", isPresented: $showingValidationError) {
+            Button("OK") { }
+        } message: {
+            Text(validationErrorMessage)
+        }
     }
     
+    // MARK: - Helper Methods
+    
     private var isValid: Bool {
-        let nameValid = !foodName.trimmingCharacters(in: .whitespaces).isEmpty
-        let servingSizeValid = !servingSize.isEmpty && Double(servingSize) != nil && Double(servingSize)! > 0
-        let caloriesValid = !calories.isEmpty && Double(calories) != nil
+        let validation = validateFormData()
+        return validation.isValid
+    }
+    
+    // FIXED: Async validation to prevent state modification warnings
+    private func validateFormAsync() {
+        Task { @MainActor in
+            validateForm()
+        }
+    }
+    
+    private func validateForm() {
+        let validation = validateFormData()
+        validationErrorMessage = validation.errorMessage
+    }
+    
+    private func validateFormData() -> (isValid: Bool, errorMessage: String) {
+        let trimmedName = foodName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            return (false, "Food name is required")
+        }
         
-        print("🔍 Form Validation:")
-        print("   - Food name: '\(foodName)' -> Valid: \(nameValid)")
-        print("   - Serving size: '\(servingSize)' -> Valid: \(servingSizeValid)")
-        print("   - Calories: '\(calories)' -> Valid: \(caloriesValid)")
-        print("   - Overall valid: \(nameValid && servingSizeValid && caloriesValid)")
+        guard !servingSize.isEmpty else {
+            return (false, "Serving size is required")
+        }
         
-        return nameValid && servingSizeValid && caloriesValid
+        guard let servingSizeValue = Double(servingSize), servingSizeValue > 0 else {
+            return (false, "Serving size must be a positive number")
+        }
+        
+        guard !calories.isEmpty else {
+            return (false, "Calories are required")
+        }
+        
+        guard let caloriesValue = Double(calories), caloriesValue >= 0 else {
+            return (false, "Calories must be a non-negative number")
+        }
+        
+        if !protein.isEmpty {
+            guard let proteinValue = Double(protein), proteinValue >= 0 else {
+                return (false, "Protein must be a non-negative number")
+            }
+        }
+        
+        if !carbohydrates.isEmpty {
+            guard let carbValue = Double(carbohydrates), carbValue >= 0 else {
+                return (false, "Carbohydrates must be a non-negative number")
+            }
+        }
+        
+        if !fat.isEmpty {
+            guard let fatValue = Double(fat), fatValue >= 0 else {
+                return (false, "Fat must be a non-negative number")
+            }
+        }
+        
+        if !fiber.isEmpty {
+            guard let fiberValue = Double(fiber), fiberValue >= 0 else {
+                return (false, "Fiber must be a non-negative number")
+            }
+        }
+        
+        if !sugar.isEmpty {
+            guard let sugarValue = Double(sugar), sugarValue >= 0 else {
+                return (false, "Sugar must be a non-negative number")
+            }
+        }
+        
+        if !sodium.isEmpty {
+            guard let sodiumValue = Double(sodium), sodiumValue >= 0 else {
+                return (false, "Sodium must be a non-negative number")
+            }
+        }
+        
+        return (true, "")
     }
     
     private func createNutritionInfo() -> NutritionInfo {
         return NutritionInfo(
             calories: Double(calories),
-            protein: Double(protein),
-            carbohydrates: Double(carbohydrates),
-            fat: Double(fat),
+            protein: protein.isEmpty ? nil : Double(protein),
+            carbohydrates: carbohydrates.isEmpty ? nil : Double(carbohydrates),
+            fat: fat.isEmpty ? nil : Double(fat),
             fiber: fiber.isEmpty ? nil : Double(fiber),
             sugar: sugar.isEmpty ? nil : Double(sugar),
             sodium: sodium.isEmpty ? nil : Double(sodium)
         )
     }
     
+    // FIXED: Enhanced save with proper async handling
     private func saveFood() {
-        guard isValid else {
-            print("❌ Manual Entry: Form is not valid")
+        let validation = validateFormData()
+        guard validation.isValid else {
+            validationErrorMessage = validation.errorMessage
+            showingValidationError = true
             return
         }
         
         print("✅ Manual Entry: Starting save process...")
         
-        let savedFoodName = foodName
+        let savedFoodName = foodName.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedMealType = mealType
         
-        // Create food with enhanced nutrition info
         let nutritionInfo = createNutritionInfo()
         
         let food = Food(
-            name: foodName,
+            name: savedFoodName,
             nutritionInfo: nutritionInfo,
             servingSize: Double(servingSize) ?? 1,
             servingSizeUnit: servingUnit.abbreviation,
-            brand: brand.isEmpty ? nil : brand,
+            brand: brand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : brand.trimmingCharacters(in: .whitespacesAndNewlines),
             isCustom: true
         )
         
         print("📦 Created food: \(food.name) with \(food.nutritionInfo.calories ?? 0) calories per \(food.servingSize) \(food.servingSizeUnit)")
         
-        // Save to database using thread-safe version
         DatabaseManager.shared.saveFoodThreadSafe(food) { success in
-            if success {
-                print("💾 Food saved to database")
-                
-                // Create food entry using the unit system
-                let entry = FoodEntry.create(
-                    food: food,
-                    quantity: Double(servingSize) ?? 1,
-                    unit: servingUnit,
-                    mealType: mealType
-                )
-                
-                print("📝 Created food entry for \(entry.mealType.rawValue)")
-                
-                // Save food entry
-                DatabaseManager.shared.saveFoodEntryThreadSafe(entry) { entrySuccess in
-                    if entrySuccess {
-                        print("💾 Food entry saved to database")
-                        
-                        // Post notification to refresh dashboard
-                        NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
-                        print("📢 Posted notification to refresh dashboard")
-                        
-                        successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!"
-                        showingSuccessAlert = true
-                        
-                        print("✅ Manual Entry: Complete!")
-                    } else {
-                        print("❌ Failed to save food entry")
+            Task { @MainActor in
+                if success {
+                    print("💾 Food saved to database")
+                    
+                    let entry = FoodEntry.create(
+                        food: food,
+                        quantity: Double(self.servingSize) ?? 1,
+                        unit: self.servingUnit,
+                        mealType: self.mealType
+                    )
+                    
+                    print("📝 Created food entry for \(entry.mealType.rawValue)")
+                    
+                    DatabaseManager.shared.saveFoodEntryThreadSafe(entry) { entrySuccess in
+                        Task { @MainActor in
+                            if entrySuccess {
+                                print("💾 Food entry saved to database")
+                                
+                                NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
+                                print("📢 Posted notification to refresh dashboard")
+                                
+                                self.successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!"
+                                self.showingSuccessAlert = true
+                                
+                                print("✅ Manual Entry: Complete!")
+                            } else {
+                                print("❌ Failed to save food entry")
+                                self.validationErrorMessage = "Failed to save food entry. Please try again."
+                                self.showingValidationError = true
+                            }
+                        }
                     }
+                } else {
+                    print("❌ Failed to save food")
+                    self.validationErrorMessage = "Failed to save food. Please try again."
+                    self.showingValidationError = true
                 }
-            } else {
-                print("❌ Failed to save food")
             }
         }
     }
     
     private func clearForm() {
-        foodName = ""
-        brand = ""
-        servingSize = ""
-        calories = ""
-        protein = ""
-        carbohydrates = ""
-        fat = ""
-        fiber = ""
-        sugar = ""
-        sodium = ""
-        // Keep the same meal type and unit for convenience
+        Task { @MainActor in
+            foodName = ""
+            brand = ""
+            servingSize = ""
+            calories = ""
+            protein = ""
+            carbohydrates = ""
+            fat = ""
+            fiber = ""
+            sugar = ""
+            sodium = ""
+            validationErrorMessage = ""
+            focusedField = .foodName
+            validateForm()
+        }
+    }
+    
+    // MARK: - Keyboard Navigation
+    
+    private func moveToNextField() {
+        switch focusedField {
+        case .foodName: focusedField = .brand
+        case .brand: focusedField = .servingSize
+        case .servingSize: focusedField = .calories
+        case .calories: focusedField = .protein
+        case .protein: focusedField = .carbohydrates
+        case .carbohydrates: focusedField = .fat
+        case .fat: focusedField = isAdvancedMode ? .fiber : nil
+        case .fiber: focusedField = .sugar
+        case .sugar: focusedField = .sodium
+        default: focusedField = nil
+        }
+    }
+    
+    private func moveToPreviousField() {
+        switch focusedField {
+        case .brand: focusedField = .foodName
+        case .servingSize: focusedField = .brand
+        case .calories: focusedField = .servingSize
+        case .protein: focusedField = .calories
+        case .carbohydrates: focusedField = .protein
+        case .fat: focusedField = .carbohydrates
+        case .fiber: focusedField = .fat
+        case .sugar: focusedField = .fiber
+        case .sodium: focusedField = .sugar
+        default: break
+        }
+    }
+    
+    private func canMoveToNext() -> Bool {
+        switch focusedField {
+        case .foodName, .brand, .servingSize, .calories, .protein, .carbohydrates: return true
+        case .fat: return isAdvancedMode
+        case .fiber, .sugar: return true
+        default: return false
+        }
+    }
+    
+    private func canMoveToPrevious() -> Bool {
+        return focusedField != .foodName && focusedField != nil
     }
 }
 
-//// MARK: - Macro Display Component
-//struct MacroDisplay: View {
-//    let label: String
-//    let value: Double
-//    let color: Color
-//    
-//    var body: some View {
-//        VStack(spacing: 2) {
-//            Text(label)
-//                .font(.caption2)
-//                .foregroundColor(.secondary)
-//            Text("\(Int(value))g")
-//                .font(.caption)
-//                .fontWeight(.semibold)
-//                .foregroundColor(color)
-//        }
-//    }
-//}
-
 // MARK: - Enhanced Nutrition Input Row
+
 struct NutritionInputRow: View {
     let label: String
     @Binding var value: String
     let unit: String
+    var focusedField: FocusState<ManualEntryView.Field?>.Binding
+    let field: ManualEntryView.Field
+    let nextField: ManualEntryView.Field?
     
     var body: some View {
         HStack {
@@ -348,9 +564,17 @@ struct NutritionInputRow: View {
             
             HStack(spacing: 4) {
                 TextField("0", text: $value)
+                    .focused(focusedField, equals: field)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 60)
+                    .onSubmit {
+                        if let nextField = nextField {
+                            focusedField.wrappedValue = nextField
+                        } else {
+                            focusedField.wrappedValue = nil
+                        }
+                    }
                 
                 Text(unit)
                     .font(.caption)
@@ -359,8 +583,4 @@ struct NutritionInputRow: View {
             }
         }
     }
-}
-
-#Preview {
-    ManualEntryView()
 }

@@ -251,6 +251,84 @@ class DatabaseManager: ObservableObject {
         }
     }
     
+    // MARK: - Thread-Safe Public Interface (ONLY use these methods)
+    
+    func getFoodEntriesThreadSafe(for date: Date, completion: @escaping ([FoodEntry]) -> Void) {
+        operationQueue.addOperation {
+            let entries = self.getFoodEntriesSync(for: date)
+            DispatchQueue.main.async {
+                completion(entries)
+            }
+        }
+    }
+    
+    func getAllFoodEntriesThreadSafe(from startDate: Date, to endDate: Date, completion: @escaping ([FoodEntry]) -> Void) {
+        operationQueue.addOperation {
+            Swift.print("🗄️ DatabaseManager: Getting all entries from \(startDate) to \(endDate)")
+            
+            var allEntries: [FoodEntry] = []
+            var currentDate = startDate
+            let calendar = Calendar.current
+            
+            while currentDate <= endDate {
+                let dayEntries = self.getFoodEntriesSync(for: currentDate)
+                allEntries.append(contentsOf: dayEntries)
+                currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? endDate
+            }
+            
+            Swift.print("🗄️ DatabaseManager: Found \(allEntries.count) total entries")
+            
+            DispatchQueue.main.async {
+                completion(allEntries)
+            }
+        }
+    }
+    
+    func saveFoodThreadSafe(_ food: Food, completion: @escaping (Bool) -> Void = { _ in }) {
+        operationQueue.addOperation {
+            let success = self.saveFoodSync(food)
+            DispatchQueue.main.async {
+                completion(success)
+            }
+        }
+    }
+    
+    func saveFoodEntryThreadSafe(_ entry: FoodEntry, completion: @escaping (Bool) -> Void = { _ in }) {
+        operationQueue.addOperation {
+            let success = self.saveFoodEntrySync(entry)
+            DispatchQueue.main.async {
+                completion(success)
+            }
+        }
+    }
+    
+    func deleteEntryThreadSafe(_ entry: FoodEntry, completion: @escaping (Bool) -> Void) {
+        operationQueue.addOperation {
+            let success = self.deleteEntrySync(entry)
+            DispatchQueue.main.async {
+                completion(success)
+            }
+        }
+    }
+    
+    func searchFoodsThreadSafe(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
+        operationQueue.addOperation {
+            let foods = self.searchFoodsSync(query: query, limit: limit)
+            DispatchQueue.main.async {
+                completion(foods)
+            }
+        }
+    }
+    
+    func getRecentFoodsThreadSafe(limit: Int = 10, completion: @escaping ([Food]) -> Void) {
+        operationQueue.addOperation {
+            let foods = self.getRecentFoodsSync(limit: limit)
+            DispatchQueue.main.async {
+                completion(foods)
+            }
+        }
+    }
+    
     // MARK: - Enhanced Search with Fuzzy Matching
     func searchFoodsWithFuzzyMatching(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
         operationQueue.addOperation {
@@ -292,7 +370,9 @@ class DatabaseManager: ObservableObject {
                         
                         // Save API results
                         for food in apiResults {
-                            self.saveFood(food)
+                            self.operationQueue.addOperation {
+                                _ = self.saveFoodSync(food)
+                            }
                         }
                         
                         // Filter duplicates
@@ -322,202 +402,228 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    // MARK: - Search Implementations
-    private func performExactSearch(query: String, limit: Int) -> [Food] {
-        let sql = "SELECT * FROM Foods WHERE LOWER(name) = LOWER(?) OR LOWER(brand) = LOWER(?) ORDER BY source ASC, name LIMIT ?"
-        return executeFoodSearch(sql: sql, params: [query, query], limit: limit)
-    }
-    
-    private func performStartsWithSearch(query: String, limit: Int) -> [Food] {
-        let sql = "SELECT * FROM Foods WHERE LOWER(name) LIKE LOWER(?) OR LOWER(brand) LIKE LOWER(?) ORDER BY source ASC, name LIMIT ?"
-        let searchPattern = "\(query.lowercased())%"
-        return executeFoodSearch(sql: sql, params: [searchPattern, searchPattern], limit: limit)
-    }
-    
-    private func performContainsSearch(query: String, limit: Int) -> [Food] {
-        let sql = "SELECT * FROM Foods WHERE LOWER(name) LIKE LOWER(?) OR LOWER(brand) LIKE LOWER(?) ORDER BY source ASC, name LIMIT ?"
-        let searchPattern = "%\(query.lowercased())%"
-        return executeFoodSearch(sql: sql, params: [searchPattern, searchPattern], limit: limit)
-    }
-    
-    private func performFuzzySearch(query: String, limit: Int) -> [Food] {
-        let words = query.lowercased().components(separatedBy: .whitespaces).filter { !$0.isEmpty }
-        guard !words.isEmpty else { return [] }
+    // MARK: - API Integration Methods
+    func getFoodByBarcode(_ barcode: String, completion: @escaping (Food?) -> Void) {
+        Swift.print("🔍 DatabaseManager: Starting barcode lookup for: \(barcode)")
         
-        var conditions: [String] = []
-        var params: [String] = []
-        
-        for word in words {
-            conditions.append("(LOWER(name) LIKE ? OR LOWER(brand) LIKE ?)")
-            params.append("%\(word)%")
-            params.append("%\(word)%")
-        }
-        
-        let sql = "SELECT * FROM Foods WHERE \(conditions.joined(separator: " AND ")) ORDER BY source ASC, name LIMIT ?"
-        return executeFoodSearch(sql: sql, params: params, limit: limit)
-    }
-    
-    private func executeFoodSearch(sql: String, params: [String], limit: Int) -> [Food] {
-        var foods: [Food] = []
-        var statement: OpaquePointer?
-        
-        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
-            // Bind parameters
-            for (index, param) in params.enumerated() {
-                sqlite3_bind_text(statement, Int32(index + 1), param, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        operationQueue.addOperation {
+            // First check local database
+            if let localFood = self.getFoodByBarcodeSync(barcode) {
+                Swift.print("🗄️ Found food locally: \(localFood.name) (Source: \(localFood.source))")
+                DispatchQueue.main.async {
+                    completion(localFood)
+                }
+                return
             }
             
-            // Bind limit
-            sqlite3_bind_int(statement, Int32(params.count + 1), Int32(limit))
-            
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let food = createFoodFromRow(statement: statement!) {
-                    foods.append(food)
+            // If not found locally, search OpenFoodFacts API
+            Swift.print("🌐 Barcode not found locally, searching OpenFoodFacts API for: \(barcode)")
+            Task {
+                do {
+                    if let apiFood = try await APIManager.shared.searchByBarcode(barcode) {
+                        Swift.print("🌐 ✅ Found food via OpenFoodFacts API: \(apiFood.name)")
+                        
+                        // Save to database using thread-safe method
+                        self.operationQueue.addOperation {
+                            let saveSuccess = self.saveFoodSync(apiFood)
+                            Swift.print("💾 Save to database: \(saveSuccess ? "SUCCESS" : "FAILED")")
+                            
+                            DispatchQueue.main.async {
+                                completion(apiFood)
+                            }
+                        }
+                    } else {
+                        Swift.print("🌐 ❌ Food not found in OpenFoodFacts API for barcode: \(barcode)")
+                        DispatchQueue.main.async {
+                            completion(nil)
+                        }
+                    }
+                } catch {
+                    Swift.print("❌ OpenFoodFacts API search failed: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
                 }
             }
         }
-        
-        sqlite3_finalize(statement)
-        return foods
     }
     
-    // FIXED: Corrected CharacterSet usage
-    private func areFoodsSimilar(_ food1: Food, _ food2: Food) -> Bool {
-        // Check if foods are similar to avoid duplicates
-        if let barcode1 = food1.barcode, let barcode2 = food2.barcode {
-            return barcode1 == barcode2
+    func debugBarcodeLookup(_ barcode: String) {
+        Swift.print("🧪 DEBUG: Testing barcode lookup for: \(barcode)")
+        
+        // Check local database first
+        operationQueue.addOperation {
+            if let localFood = self.getFoodByBarcodeSync(barcode) {
+                Swift.print("🧪 Found in local DB: \(localFood.name)")
+            } else {
+                Swift.print("🧪 Not found in local DB")
+                
+                // Check how many foods with barcodes we have
+                let querySQL = "SELECT COUNT(*) FROM Foods WHERE barcode IS NOT NULL AND barcode != ''"
+                var statement: OpaquePointer?
+                if sqlite3_prepare_v2(self.db, querySQL, -1, &statement, nil) == SQLITE_OK {
+                    if sqlite3_step(statement) == SQLITE_ROW {
+                        let count = sqlite3_column_int(statement, 0)
+                        Swift.print("🧪 Database has \(count) foods with barcodes")
+                    }
+                }
+                sqlite3_finalize(statement)
+            }
         }
-        
-        // Fix: Use the correct CharacterSet
-        let charactersToRemove = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        let name1 = food1.name.lowercased().trimmingCharacters(in: charactersToRemove)
-        let name2 = food2.name.lowercased().trimmingCharacters(in: charactersToRemove)
-        
-        return name1 == name2 || levenshteinDistance(name1, name2) < 3
     }
     
-    private func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
-        let a = Array(s1)
-        let b = Array(s2)
+    // MARK: - User Settings Operations
+    func saveUserSettingsAsync(_ user: User, completion: @escaping () -> Void = {}) {
+        operationQueue.addOperation {
+            self.saveUserSettings(user)
+            DispatchQueue.main.async {
+                completion()
+            }
+        }
+    }
+    
+    func saveUserSettings(_ user: User) {
+        Swift.print("🗄️ Attempting to save user settings")
         
-        var matrix = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
+        let insertSQL = "INSERT OR REPLACE INTO UserSettings (id, settings_data) VALUES (1, ?)"
         
-        for i in 0...a.count { matrix[i][0] = i }
-        for j in 0...b.count { matrix[0][j] = j }
+        var statement: OpaquePointer?
         
-        for i in 1...a.count {
-            for j in 1...b.count {
-                if a[i-1] == b[j-1] {
-                    matrix[i][j] = matrix[i-1][j-1]
+        if sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK {
+            do {
+                let encoder = JSONEncoder()
+                let settingsData = try encoder.encode(user)
+                guard let settingsString = String(data: settingsData, encoding: .utf8) else {
+                    Swift.print("❌ Error converting user settings to string")
+                    sqlite3_finalize(statement)
+                    return
+                }
+                
+                sqlite3_bind_text(statement, 1, settingsString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                
+                if sqlite3_step(statement) == SQLITE_DONE {
+                    Swift.print("✅ User settings saved successfully")
                 } else {
-                    matrix[i][j] = min(matrix[i-1][j], matrix[i][j-1], matrix[i-1][j-1]) + 1
+                    let errmsg = String(cString: sqlite3_errmsg(db))
+                    Swift.print("❌ Error saving user settings: \(errmsg)")
                 }
-            }
-        }
-        
-        return matrix[a.count][b.count]
-    }
-    
-    // MARK: - Thread-Safe Food Operations
-   func saveFoodThreadSafe(_ food: Food, completion: @escaping (Bool) -> Void = { _ in }) {
-       operationQueue.addOperation {
-           let success = self.saveFoodSync(food)
-           DispatchQueue.main.async {
-               completion(success)
-           }
-       }
-   }
-    
-   func saveFoodEntryThreadSafe(_ entry: FoodEntry, completion: @escaping (Bool) -> Void = { _ in }) {
-       operationQueue.addOperation {
-           let success = self.saveFoodEntrySync(entry)
-           DispatchQueue.main.async {
-               completion(success)
-           }
-       }
-   }
-    
-   func getFoodEntriesThreadSafe(for date: Date, completion: @escaping ([FoodEntry]) -> Void) {
-       operationQueue.addOperation {
-           let entries = self.getFoodEntriesSync(for: date)
-           DispatchQueue.main.async {
-               completion(entries)
-           }
-       }
-   }
-    
-    // MARK: - Thread-Safe Recent Foods (NEW)
-    func getRecentFoodsThreadSafe(limit: Int = 10, completion: @escaping ([Food]) -> Void) {
-        operationQueue.addOperation {
-            let foods = self.getRecentFoodsSync(limit: limit)
-            DispatchQueue.main.async {
-                completion(foods)
-            }
-        }
-    }
-    
-    private func getRecentFoodsSync(limit: Int) -> [Food] {
-        Swift.print("🗄️ Getting recent foods (limit: \(limit))")
-        
-        let querySQL = "SELECT * FROM Foods ORDER BY date_added DESC LIMIT ?"
-        var statement: OpaquePointer?
-        var foods: [Food] = []
-        
-        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
-            sqlite3_bind_int(statement, 1, Int32(limit))
-            
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let food = createFoodFromRow(statement: statement!) {
-                    foods.append(food)
-                }
+            } catch {
+                Swift.print("❌ Error encoding user settings: \(error)")
             }
         } else {
             let errmsg = String(cString: sqlite3_errmsg(db))
-            Swift.print("❌ Error preparing recent foods query: \(errmsg)")
+            Swift.print("❌ Error preparing save user settings statement: \(errmsg)")
         }
         
         sqlite3_finalize(statement)
-        return foods
     }
     
-    // MARK: - Thread-Safe Search Methods (NEW)
-    func searchFoodsThreadSafe(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
-        operationQueue.addOperation {
-            let foods = self.searchFoodsSync(query: query, limit: limit)
-            DispatchQueue.main.async {
-                completion(foods)
-            }
-        }
-    }
-    
-    private func searchFoodsSync(query: String, limit: Int) -> [Food] {
-        Swift.print("🔍 Searching foods with query: '\(query)'")
+    func getUserSettings() -> User {
+        Swift.print("🗄️ Getting user settings")
         
-        let searchQuery = "%\(query)%"
-        let querySQL = "SELECT * FROM Foods WHERE name LIKE ? OR brand LIKE ? ORDER BY source ASC, name LIMIT ?"
+        let querySQL = "SELECT settings_data FROM UserSettings WHERE id = 1"
         var statement: OpaquePointer?
-        var foods: [Food] = []
+        var user = User()
         
         if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
-            sqlite3_bind_text(statement, 1, searchQuery, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(statement, 2, searchQuery, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_int(statement, 3, Int32(limit))
-            
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let food = createFoodFromRow(statement: statement!) {
-                    foods.append(food)
+            if sqlite3_step(statement) == SQLITE_ROW {
+                if let settingsString = sqlite3_column_text(statement, 0) {
+                    guard let settingsData = String(cString: settingsString).data(using: .utf8) else {
+                        Swift.print("❌ Error converting settings string to data")
+                        sqlite3_finalize(statement)
+                        return user
+                    }
+                    let decoder = JSONDecoder()
+                    if let decodedUser = try? decoder.decode(User.self, from: settingsData) {
+                        user = decodedUser
+                        Swift.print("✅ User settings loaded successfully")
+                    } else {
+                        Swift.print("❌ Error decoding user settings")
+                    }
+                } else {
+                    Swift.print("🗄️ No user settings found, using defaults")
                 }
+            } else {
+                Swift.print("🗄️ No user settings row found, using defaults")
             }
         } else {
             let errmsg = String(cString: sqlite3_errmsg(db))
-            Swift.print("❌ Error preparing search query: \(errmsg)")
+            Swift.print("❌ Error preparing get user settings query: \(errmsg)")
         }
         
         sqlite3_finalize(statement)
-        return foods
+        return user
     }
     
-    // MARK: - Synchronous Core Methods
+    func getUserSettingsAsync(completion: @escaping (User) -> Void) {
+        operationQueue.addOperation {
+            let user = self.getUserSettings()
+            DispatchQueue.main.async {
+                completion(user)
+            }
+        }
+    }
+    
+    // MARK: - Legacy Method Compatibility (Safe Wrappers)
+    
+    func saveFood(_ food: Food) {
+        saveFoodThreadSafe(food) { _ in }
+    }
+    
+    func saveFoodEntry(_ entry: FoodEntry) {
+        saveFoodEntryThreadSafe(entry) { _ in }
+    }
+    
+    func getFoodEntriesAsync(for date: Date, completion: @escaping ([FoodEntry]) -> Void) {
+        getFoodEntriesThreadSafe(for: date, completion: completion)
+    }
+    
+    func searchFoodsAsync(query: String, completion: @escaping ([Food]) -> Void) {
+        searchFoodsWithFuzzyMatching(query: query, completion: completion)
+    }
+    
+    func saveFoodAsync(_ food: Food, completion: @escaping () -> Void = {}) {
+        saveFoodThreadSafe(food) { _ in
+            completion()
+        }
+    }
+    
+    func saveFoodEntryAsync(_ entry: FoodEntry, completion: @escaping () -> Void = {}) {
+        saveFoodEntryThreadSafe(entry) { _ in
+            completion()
+        }
+    }
+    
+    // MARK: - Private Sync Methods (Internal use only)
+    
+    private func getFoodEntriesSync(for date: Date) -> [FoodEntry] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let formatter = ISO8601DateFormatter()
+        let startString = formatter.string(from: startOfDay)
+        let endString = formatter.string(from: endOfDay)
+        
+        let querySQL = "SELECT * FROM FoodEntries WHERE date_logged >= ? AND date_logged < ? ORDER BY date_logged"
+        var statement: OpaquePointer?
+        var entries: [FoodEntry] = []
+        
+        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, startString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 2, endString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let entry = createFoodEntryFromRow(statement: statement!) {
+                    entries.append(entry)
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return entries
+    }
+    
     private func saveFoodSync(_ food: Food) -> Bool {
         let insertSQL = "INSERT OR REPLACE INTO Foods (id, name, barcode, nutrition_info, serving_size, serving_size_unit, brand, is_custom, date_added, recipe_id, is_recipe, source, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         
@@ -634,146 +740,82 @@ class DatabaseManager: ObservableObject {
         return success
     }
     
-    private func getFoodEntriesSync(for date: Date) -> [FoodEntry] {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: date)
-        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+    private func deleteEntrySync(_ entry: FoodEntry) -> Bool {
+        Swift.print("🗄️ DatabaseManager: Deleting entry: \(entry.id)")
         
-        let formatter = ISO8601DateFormatter()
-        let startString = formatter.string(from: startOfDay)
-        let endString = formatter.string(from: endOfDay)
-        
-        let querySQL = "SELECT * FROM FoodEntries WHERE date_logged >= ? AND date_logged < ? ORDER BY date_logged"
+        let deleteSQL = "DELETE FROM FoodEntries WHERE id = ?"
         var statement: OpaquePointer?
-        var entries: [FoodEntry] = []
+        var success = false
         
-        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
-            sqlite3_bind_text(statement, 1, startString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(statement, 2, endString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        if sqlite3_prepare_v2(db, deleteSQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, entry.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             
-            while sqlite3_step(statement) == SQLITE_ROW {
-                if let entry = createFoodEntryFromRow(statement: statement!) {
-                    entries.append(entry)
-                }
+            if sqlite3_step(statement) == SQLITE_DONE {
+                Swift.print("✅ Entry deleted successfully: \(entry.id)")
+                success = true
+            } else {
+                let errmsg = String(cString: sqlite3_errmsg(db))
+                Swift.print("❌ Error deleting entry: \(errmsg)")
             }
+        } else {
+            let errmsg = String(cString: sqlite3_errmsg(db))
+            Swift.print("❌ Error preparing delete statement: \(errmsg)")
         }
         
         sqlite3_finalize(statement)
-        return entries
+        return success
     }
     
-    // MARK: - Legacy Methods for Compatibility
-    func searchFoodsAsync(query: String, completion: @escaping ([Food]) -> Void) {
-        searchFoodsWithFuzzyMatching(query: query, completion: completion)
-    }
-    
-    func saveFoodAsync(_ food: Food, completion: @escaping () -> Void = {}) {
-        saveFoodThreadSafe(food) { _ in
-            completion()
+    private func getRecentFoodsSync(limit: Int) -> [Food] {
+        Swift.print("🗄️ Getting recent foods (limit: \(limit))")
+        
+        let querySQL = "SELECT * FROM Foods ORDER BY date_added DESC LIMIT ?"
+        var statement: OpaquePointer?
+        var foods: [Food] = []
+        
+        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_int(statement, 1, Int32(limit))
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let food = createFoodFromRow(statement: statement!) {
+                    foods.append(food)
+                }
+            }
+        } else {
+            let errmsg = String(cString: sqlite3_errmsg(db))
+            Swift.print("❌ Error preparing recent foods query: \(errmsg)")
         }
+        
+        sqlite3_finalize(statement)
+        return foods
     }
     
-    func saveFoodEntryAsync(_ entry: FoodEntry, completion: @escaping () -> Void = {}) {
-        saveFoodEntryThreadSafe(entry) { _ in
-            completion()
+    private func searchFoodsSync(query: String, limit: Int) -> [Food] {
+        Swift.print("🔍 Searching foods with query: '\(query)'")
+        
+        let searchQuery = "%\(query)%"
+        let querySQL = "SELECT * FROM Foods WHERE name LIKE ? OR brand LIKE ? ORDER BY source ASC, name LIMIT ?"
+        var statement: OpaquePointer?
+        var foods: [Food] = []
+        
+        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, searchQuery, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 2, searchQuery, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_int(statement, 3, Int32(limit))
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let food = createFoodFromRow(statement: statement!) {
+                    foods.append(food)
+                }
+            }
+        } else {
+            let errmsg = String(cString: sqlite3_errmsg(db))
+            Swift.print("❌ Error preparing search query: \(errmsg)")
         }
+        
+        sqlite3_finalize(statement)
+        return foods
     }
-    
-   func getFoodEntriesAsync(for date: Date, completion: @escaping ([FoodEntry]) -> Void) {
-       getFoodEntriesThreadSafe(for: date, completion: completion)
-   }
-    
-    func saveFood(_ food: Food) {
-        _ = saveFoodSync(food)
-    }
-    
-    func saveFoodEntry(_ entry: FoodEntry) {
-        _ = saveFoodEntrySync(entry)
-    }
-    
-    func getFoodEntries(for date: Date) -> [FoodEntry] {
-        return getFoodEntriesSync(for: date)
-    }
-    
-    // MARK: - Legacy methods now made private for thread safety
-    private func getRecentFoods(limit: Int = 10) -> [Food] {
-        return getRecentFoodsSync(limit: limit)
-    }
-    
-    private func searchFoods(query: String, limit: Int = 20) -> [Food] {
-        return searchFoodsSync(query: query, limit: limit)
-    }
-    
-    // MARK: - API Integration Methods
-   func getFoodByBarcode(_ barcode: String, completion: @escaping (Food?) -> Void) {
-       Swift.print("🔍 DatabaseManager: Starting barcode lookup for: \(barcode)")
-       
-       operationQueue.addOperation {
-           // First check local database
-           if let localFood = self.getFoodByBarcodeSync(barcode) {
-               Swift.print("🗄️ Found food locally: \(localFood.name) (Source: \(localFood.source))")
-               DispatchQueue.main.async {
-                   completion(localFood)
-               }
-               return
-           }
-           
-           // If not found locally, search OpenFoodFacts API
-           Swift.print("🌐 Barcode not found locally, searching OpenFoodFacts API for: \(barcode)")
-           Task {
-               do {
-                   if let apiFood = try await APIManager.shared.searchByBarcode(barcode) {
-                       Swift.print("🌐 ✅ Found food via OpenFoodFacts API: \(apiFood.name)")
-                       
-                       // FIXED: Use thread-safe save method
-                       self.operationQueue.addOperation {
-                           let saveSuccess = self.saveFoodSync(apiFood)
-                           Swift.print("💾 Save to database: \(saveSuccess ? "SUCCESS" : "FAILED")")
-                           
-                           DispatchQueue.main.async {
-                               completion(apiFood)
-                           }
-                       }
-                   } else {
-                       Swift.print("🌐 ❌ Food not found in OpenFoodFacts API for barcode: \(barcode)")
-                       DispatchQueue.main.async {
-                           completion(nil)
-                       }
-                   }
-               } catch {
-                   Swift.print("❌ OpenFoodFacts API search failed: \(error.localizedDescription)")
-                   DispatchQueue.main.async {
-                       completion(nil)
-                   }
-               }
-           }
-       }
-   }
-   
-   
-   func debugBarcodeLookup(_ barcode: String) {
-       Swift.print("🧪 DEBUG: Testing barcode lookup for: \(barcode)")
-       
-       // Check local database first
-       operationQueue.addOperation {
-           if let localFood = self.getFoodByBarcodeSync(barcode) {
-               Swift.print("🧪 Found in local DB: \(localFood.name)")
-           } else {
-               Swift.print("🧪 Not found in local DB")
-               
-               // Check how many foods with barcodes we have
-               let querySQL = "SELECT COUNT(*) FROM Foods WHERE barcode IS NOT NULL AND barcode != ''"
-               var statement: OpaquePointer?
-               if sqlite3_prepare_v2(self.db, querySQL, -1, &statement, nil) == SQLITE_OK {
-                   if sqlite3_step(statement) == SQLITE_ROW {
-                       let count = sqlite3_column_int(statement, 0)
-                       Swift.print("🧪 Database has \(count) foods with barcodes")
-                   }
-               }
-               sqlite3_finalize(statement)
-           }
-       }
-   }
     
     private func getFoodByBarcodeSync(_ barcode: String) -> Food? {
         Swift.print("🗄️ Looking up food by barcode: \(barcode)")
@@ -802,6 +844,100 @@ class DatabaseManager: ObservableObject {
         return food
     }
     
+    // MARK: - Search Implementations
+    private func performExactSearch(query: String, limit: Int) -> [Food] {
+        let sql = "SELECT * FROM Foods WHERE LOWER(name) = LOWER(?) OR LOWER(brand) = LOWER(?) ORDER BY source ASC, name LIMIT ?"
+        return executeFoodSearch(sql: sql, params: [query, query], limit: limit)
+    }
+    
+    private func performStartsWithSearch(query: String, limit: Int) -> [Food] {
+        let sql = "SELECT * FROM Foods WHERE LOWER(name) LIKE LOWER(?) OR LOWER(brand) LIKE LOWER(?) ORDER BY source ASC, name LIMIT ?"
+        let searchPattern = "\(query.lowercased())%"
+        return executeFoodSearch(sql: sql, params: [searchPattern, searchPattern], limit: limit)
+    }
+    
+    private func performContainsSearch(query: String, limit: Int) -> [Food] {
+        let sql = "SELECT * FROM Foods WHERE LOWER(name) LIKE LOWER(?) OR LOWER(brand) LIKE LOWER(?) ORDER BY source ASC, name LIMIT ?"
+        let searchPattern = "%\(query.lowercased())%"
+        return executeFoodSearch(sql: sql, params: [searchPattern, searchPattern], limit: limit)
+    }
+    
+    private func performFuzzySearch(query: String, limit: Int) -> [Food] {
+        let words = query.lowercased().components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        guard !words.isEmpty else { return [] }
+        
+        var conditions: [String] = []
+        var params: [String] = []
+        
+        for word in words {
+            conditions.append("(LOWER(name) LIKE ? OR LOWER(brand) LIKE ?)")
+            params.append("%\(word)%")
+            params.append("%\(word)%")
+        }
+        
+        let sql = "SELECT * FROM Foods WHERE \(conditions.joined(separator: " AND ")) ORDER BY source ASC, name LIMIT ?"
+        return executeFoodSearch(sql: sql, params: params, limit: limit)
+    }
+    
+    private func executeFoodSearch(sql: String, params: [String], limit: Int) -> [Food] {
+        var foods: [Food] = []
+        var statement: OpaquePointer?
+        
+        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+            // Bind parameters
+            for (index, param) in params.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 1), param, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+            
+            // Bind limit
+            sqlite3_bind_int(statement, Int32(params.count + 1), Int32(limit))
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let food = createFoodFromRow(statement: statement!) {
+                    foods.append(food)
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return foods
+    }
+    
+    private func areFoodsSimilar(_ food1: Food, _ food2: Food) -> Bool {
+        // Check if foods are similar to avoid duplicates
+        if let barcode1 = food1.barcode, let barcode2 = food2.barcode {
+            return barcode1 == barcode2
+        }
+        
+        let charactersToRemove = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        let name1 = food1.name.lowercased().trimmingCharacters(in: charactersToRemove)
+        let name2 = food2.name.lowercased().trimmingCharacters(in: charactersToRemove)
+        
+        return name1 == name2 || levenshteinDistance(name1, name2) < 3
+    }
+    
+    private func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
+        let a = Array(s1)
+        let b = Array(s2)
+        
+        var matrix = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
+        
+        for i in 0...a.count { matrix[i][0] = i }
+        for j in 0...b.count { matrix[0][j] = j }
+        
+        for i in 1...a.count {
+            for j in 1...b.count {
+                if a[i-1] == b[j-1] {
+                    matrix[i][j] = matrix[i-1][j-1]
+                } else {
+                    matrix[i][j] = min(matrix[i-1][j], matrix[i][j-1], matrix[i-1][j-1]) + 1
+                }
+            }
+        }
+        
+        return matrix[a.count][b.count]
+    }
+    
     private func createFoodFromRow(statement: OpaquePointer) -> Food? {
         guard let idString = sqlite3_column_text(statement, 0),
               let nameString = sqlite3_column_text(statement, 1),
@@ -817,9 +953,7 @@ class DatabaseManager: ObservableObject {
         let barcode = sqlite3_column_text(statement, 2) != nil ? String(cString: sqlite3_column_text(statement, 2)!) : nil
         
         let nutritionJsonString = String(cString: nutritionString)
-        Swift.print("🗄️ Retrieved nutrition JSON: \(nutritionJsonString)")
         
-        // Safely convert nutrition string to data
         guard let nutritionData = nutritionJsonString.data(using: .utf8) else {
             Swift.print("❌ Error converting nutrition string to data for food: \(name)")
             return nil
@@ -855,7 +989,6 @@ class DatabaseManager: ObservableObject {
         let decoder = JSONDecoder()
         do {
             let nutritionInfo = try decoder.decode(NutritionInfo.self, from: nutritionData)
-            Swift.print("✅ Successfully decoded nutrition info for food: \(name)")
             
             let formatter = ISO8601DateFormatter()
             let dateAdded = formatter.date(from: String(cString: dateString)) ?? Date()
@@ -873,7 +1006,6 @@ class DatabaseManager: ObservableObject {
     }
     
     private func createFoodEntryFromRow(statement: OpaquePointer) -> FoodEntry? {
-        // Get column data safely
         guard let idData = sqlite3_column_text(statement, 0),
               let foodData = sqlite3_column_text(statement, 1),
               let mealTypeData = sqlite3_column_text(statement, 3),
@@ -882,34 +1014,28 @@ class DatabaseManager: ObservableObject {
             return nil
         }
         
-        // Convert to strings safely
         let idString = String(cString: idData)
         let mealTypeString = String(cString: mealTypeData)
         let dateString = String(cString: dateData)
         
-        // Get quantity
         let quantity = sqlite3_column_double(statement, 2)
         
-        // Get notes (optional)
         var notes: String?
         if let notesData = sqlite3_column_text(statement, 5) {
             notes = String(cString: notesData)
         }
         
-        // Parse meal type
         guard let mealType = MealType(rawValue: mealTypeString) else {
             Swift.print("🗄️ Database: Invalid meal type: \(mealTypeString)")
             return nil
         }
         
-        // Parse date
         let formatter = ISO8601DateFormatter()
         guard let dateLogged = formatter.date(from: dateString) else {
             Swift.print("🗄️ Database: Invalid date format: \(dateString)")
             return nil
         }
         
-        // Parse food JSON
         let foodDataLength = sqlite3_column_bytes(statement, 1)
         let foodJsonData = Data(bytes: foodData, count: Int(foodDataLength))
         
@@ -917,7 +1043,6 @@ class DatabaseManager: ObservableObject {
             let decoder = JSONDecoder()
             let food = try decoder.decode(Food.self, from: foodJsonData)
             
-            // Create and return food entry using safe initializer
             return FoodEntry(
                 id: UUID(uuidString: idString) ?? UUID(),
                 food: food,
@@ -932,104 +1057,10 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    // MARK: - User Settings Operations
-    func saveUserSettingsAsync(_ user: User, completion: @escaping () -> Void = {}) {
-        operationQueue.addOperation {
-            self.saveUserSettings(user)
-            DispatchQueue.main.async {
-                completion()
-            }
-        }
-    }
-    
-    func saveUserSettings(_ user: User) {
-        Swift.print("🗄️ Attempting to save user settings")
-        
-        let insertSQL = "INSERT OR REPLACE INTO UserSettings (id, settings_data) VALUES (1, ?)"
-        
-        var statement: OpaquePointer?
-        
-        if sqlite3_prepare_v2(db, insertSQL, -1, &statement, nil) == SQLITE_OK {
-            do {
-                let encoder = JSONEncoder()
-                let settingsData = try encoder.encode(user)
-                guard let settingsString = String(data: settingsData, encoding: .utf8) else {
-                    Swift.print("❌ Error converting user settings to string")
-                    sqlite3_finalize(statement)
-                    return
-                }
-                
-                // Use SQLITE_TRANSIENT for string binding
-                sqlite3_bind_text(statement, 1, settingsString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-                
-                if sqlite3_step(statement) == SQLITE_DONE {
-                    Swift.print("✅ User settings saved successfully")
-                } else {
-                    let errmsg = String(cString: sqlite3_errmsg(db))
-                    Swift.print("❌ Error saving user settings: \(errmsg)")
-                }
-            } catch {
-                Swift.print("❌ Error encoding user settings: \(error)")
-            }
-        } else {
-            let errmsg = String(cString: sqlite3_errmsg(db))
-            Swift.print("❌ Error preparing save user settings statement: \(errmsg)")
-        }
-        
-        sqlite3_finalize(statement)
-    }
-    
-    func getUserSettings() -> User {
-        Swift.print("🗄️ Getting user settings")
-        
-        let querySQL = "SELECT settings_data FROM UserSettings WHERE id = 1"
-        var statement: OpaquePointer?
-        var user = User()
-        
-        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
-            if sqlite3_step(statement) == SQLITE_ROW {
-                if let settingsString = sqlite3_column_text(statement, 0) {
-                    guard let settingsData = String(cString: settingsString).data(using: .utf8) else {
-                        Swift.print("❌ Error converting settings string to data")
-                        sqlite3_finalize(statement)
-                        return user
-                    }
-                    let decoder = JSONDecoder()
-                    if let decodedUser = try? decoder.decode(User.self, from: settingsData) {
-                        user = decodedUser
-                        Swift.print("✅ User settings loaded successfully")
-                    } else {
-                        Swift.print("❌ Error decoding user settings")
-                    }
-                } else {
-                    Swift.print("🗄️ No user settings found, using defaults")
-                }
-            } else {
-                Swift.print("🗄️ No user settings row found, using defaults")
-            }
-        } else {
-            let errmsg = String(cString: sqlite3_errmsg(db))
-            Swift.print("❌ Error preparing get user settings query: \(errmsg)")
-        }
-        
-        sqlite3_finalize(statement)
-        return user
-    }
-    
-    func getUserSettingsAsync(completion: @escaping (User) -> Void) {
-        operationQueue.addOperation {
-            let user = self.getUserSettings()
-            DispatchQueue.main.async {
-                completion(user)
-            }
-        }
-    }
-    
     // MARK: - Database Cleanup
     func cleanupCorruptedEntries() {
         Swift.print("🧹 Cleaning up corrupted database entries...")
         
-        // Delete Foods with empty names or IDs
         let cleanupFoodsSQL = "DELETE FROM Foods WHERE name = '' OR id = '' OR nutrition_info = ''"
         if sqlite3_exec(db, cleanupFoodsSQL, nil, nil, nil) == SQLITE_OK {
             Swift.print("✅ Cleaned up corrupted Foods entries")
@@ -1038,7 +1069,6 @@ class DatabaseManager: ObservableObject {
             Swift.print("❌ Error cleaning Foods: \(errmsg)")
         }
         
-        // Delete FoodEntries with empty data
         let cleanupEntriesSQL = "DELETE FROM FoodEntries WHERE id = '' OR food_data = ''"
         if sqlite3_exec(db, cleanupEntriesSQL, nil, nil, nil) == SQLITE_OK {
             Swift.print("✅ Cleaned up corrupted FoodEntries")
@@ -1075,7 +1105,6 @@ class DatabaseManager: ObservableObject {
             let foods = self.searchFoodsSync(query: "test", limit: 1)
             Swift.print("🗄️ Database test: found \(foods.count) items")
             
-            // Test recipes table
             let recipes = self.getRecipes()
             Swift.print("🗄️ Database test: found \(recipes.count) recipes")
         }
@@ -1209,17 +1238,13 @@ extension DatabaseManager {
    }
    
    private func createRecipeFromRow(statement: OpaquePointer) -> Recipe? {
-      // Log column count for debugging
       let columnCount = sqlite3_column_count(statement)
       Swift.print("🗄️ Recipe row has \(columnCount) columns")
       
-      // Determine the correct column index for date_created based on column count
       let dateColumnIndex: Int32
       if columnCount == 4 {
-         // Simple table: id, name, servings, date_created
          dateColumnIndex = 3
       } else if columnCount == 7 {
-         // Extended table: id, name, servings, instructions, prep_time, cook_time, date_created
          dateColumnIndex = 6
       } else {
          Swift.print("❌ Unexpected column count: \(columnCount)")
@@ -1248,7 +1273,6 @@ extension DatabaseManager {
       let formatter = ISO8601DateFormatter()
       let dateCreated = formatter.date(from: dateStr) ?? Date()
       
-      // Load ingredients for this recipe
       let ingredients = getIngredientsForRecipe(recipeId: id)
       Swift.print("🗄️ Loaded \(ingredients.count) ingredients for recipe: \(name)")
       
@@ -1291,7 +1315,6 @@ extension DatabaseManager {
       let id = UUID(uuidString: String(cString: idString)) ?? UUID()
       let quantity = sqlite3_column_double(statement, 3)
       
-      // Parse food JSON
       let foodDataLength = sqlite3_column_bytes(statement, 2)
       let foodJsonData = Data(bytes: foodData, count: Int(foodDataLength))
       
@@ -1318,7 +1341,6 @@ extension DatabaseManager {
    func deleteRecipe(_ recipe: Recipe) {
       Swift.print("🗄️ Deleting recipe: \(recipe.name)")
       
-      // Delete ingredients first (foreign key constraint)
       let deleteIngredientsSQL = "DELETE FROM RecipeIngredients WHERE recipe_id = ?"
       var statement: OpaquePointer?
       
@@ -1328,7 +1350,6 @@ extension DatabaseManager {
       }
       sqlite3_finalize(statement)
       
-      // Delete recipe
       let deleteRecipeSQL = "DELETE FROM Recipes WHERE id = ?"
       if sqlite3_prepare_v2(db, deleteRecipeSQL, -1, &statement, nil) == SQLITE_OK {
          sqlite3_bind_text(statement, 1, recipe.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
@@ -1342,18 +1363,14 @@ extension DatabaseManager {
       }
       sqlite3_finalize(statement)
    }
-   // Add these methods to the end of your DatabaseManager class (before the final closing brace)
    
-   // MARK: - Recipe Schema Fix and Debug Methods
    func fixRecipeSchema() {
       operationQueue.addOperation {
          Swift.print("🔧 Fixing recipe schema without data loss...")
          
-         // Try to read recipes with current logic first
          let recipes = self.getRecipes()
          
          if recipes.isEmpty {
-            // Check if there's data in the raw table that we're not reading correctly
             let querySQL = "SELECT COUNT(*) FROM Recipes"
             var statement: OpaquePointer?
             
@@ -1364,7 +1381,7 @@ extension DatabaseManager {
                   
                   if count > 0 {
                      Swift.print("🔧 Schema mismatch detected - recipes exist but can't be read")
-                     return // The updated createRecipeFromRow should fix this
+                     return
                   }
                }
             }
@@ -1384,7 +1401,6 @@ extension DatabaseManager {
             Swift.print("🗄️ Recipe: \(recipe.name), servings: \(recipe.servings), ingredients: \(recipe.ingredients.count)")
          }
          
-         // Also check raw database content
          Swift.print("🗄️ === RAW DATABASE CHECK ===")
          let querySQL = "SELECT * FROM Recipes"
          var statement: OpaquePointer?
@@ -1420,19 +1436,15 @@ extension DatabaseManager {
       operationQueue.addOperation {
          Swift.print("🗄️ Recreating recipes table...")
          
-         // BACKUP existing recipes before dropping table
          let existingRecipes = self.getRecipes()
          Swift.print("🗄️ Backing up \(existingRecipes.count) existing recipes")
          
-         // Drop existing tables
          sqlite3_exec(self.db, "DROP TABLE IF EXISTS RecipeIngredients", nil, nil, nil)
          sqlite3_exec(self.db, "DROP TABLE IF EXISTS Recipes", nil, nil, nil)
          
-         // Recreate them with correct schema
          self.createRecipesTable()
          self.createRecipeIngredientsTable()
          
-         // Restore backed up recipes
          for recipe in existingRecipes {
             Swift.print("🗄️ Restoring recipe: \(recipe.name)")
             self.saveRecipe(recipe)

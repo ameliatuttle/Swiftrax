@@ -10,7 +10,7 @@ struct BarcodeScannerView: View {
     @State private var errorMessage = ""
     @State private var hasScanned = false
     @State private var isProcessing = false
-    @State private var scannedBarcode: String = "" // NEW: Track scanned barcode
+    @State private var scannedBarcode: String = ""
     
     var body: some View {
         NavigationView {
@@ -29,9 +29,13 @@ struct BarcodeScannerView: View {
                             .scaleEffect(1.5)
                             .tint(.white)
                         
-                        Text("Looking up product...")
+                        Text("Barcode detected!")
                             .font(.headline)
                             .foregroundColor(.white)
+                        
+                        Text("Passing to search...")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.8))
                     }
                 }
                 
@@ -48,8 +52,7 @@ struct BarcodeScannerView: View {
                     if !isProcessing {
                         HStack(spacing: 40) {
                             Button("Cancel") {
-                                scanner.stopScanning()
-                                presentationMode.wrappedValue.dismiss()
+                                dismissSafely()
                             }
                             .foregroundColor(.white)
                             .padding()
@@ -65,6 +68,16 @@ struct BarcodeScannerView: View {
                             .cornerRadius(8)
                         }
                         .padding(.bottom, 40)
+                    } else {
+                        // Show cancel button even when processing
+                        Button("Cancel") {
+                            dismissSafely()
+                        }
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(8)
+                        .padding(.bottom, 40)
                     }
                 }
             }
@@ -76,63 +89,79 @@ struct BarcodeScannerView: View {
             .onDisappear {
                 scanner.stopScanning()
             }
-            // NEW: Watch for barcode detection
+            // FIXED: Prevent multiple scans and race conditions
             .onChange(of: scanner.lastDetectedBarcode) { barcode in
-                guard !barcode.isEmpty && !hasScanned && !isProcessing else { return }
-                
-                print("📱 🔥 BOOLEAN TRIGGER: Barcode detected: \(barcode)")
                 handleBarcodeDetected(barcode)
             }
         }
     }
     
-    // NEW: Handle barcode detection with boolean approach
+    // FIXED: Thread-safe barcode handling with immediate dismiss
     private func handleBarcodeDetected(_ barcode: String) {
+        // Prevent multiple processing
+        guard !barcode.isEmpty && !hasScanned && !isProcessing else {
+            print("📱 Barcode ignored: empty=\(barcode.isEmpty), hasScanned=\(hasScanned), isProcessing=\(isProcessing)")
+            return
+        }
+        
+        print("📱 🔥 Processing barcode: \(barcode)")
+        
+        // Set flags immediately to prevent race conditions
         hasScanned = true
         isProcessing = true
         scannedBarcode = barcode
         
-        print("📱 ✅ BOOLEAN CALLBACK: Processing barcode: \(barcode)")
+        // Stop scanning immediately
+        scanner.stopScanning()
         
         // Haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
         
-        // Stop scanning
+        // FIXED: Call callback and dismiss immediately without waiting
+        DispatchQueue.main.async {
+            // Call the callback first
+            print("📱 📞 Calling SearchLogView callback on main thread...")
+            self.onBarcodeScanned(barcode)
+            
+            // FIXED: Dismiss immediately after callback
+            print("📱 🚪 Dismissing scanner immediately...")
+            self.dismissSafely()
+        }
+    }
+    
+    // FIXED: Immediate safe dismissal
+    private func dismissSafely() {
+        // Stop all scanner operations
         scanner.stopScanning()
         
-        // Call the SearchLogView callback
-        print("📱 📞 BOOLEAN: Calling SearchLogView callback...")
-        onBarcodeScanned(barcode)
-        
-        // Dismiss after callback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            print("📱 🚪 BOOLEAN: Dismissing scanner...")
-            presentationMode.wrappedValue.dismiss()
+        // Dismiss immediately on main thread
+        DispatchQueue.main.async {
+            self.presentationMode.wrappedValue.dismiss()
         }
     }
     
     private func setupScanner() {
-        print("📱 🔧 Setting up scanner with boolean approach...")
-        // No delegate needed - we'll use onChange
+        print("📱 🔧 Setting up scanner...")
+        // Scanner setup is now handled by onChange
     }
     
     private func requestCameraPermission() {
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async {
                 if granted {
-                    scanner.startScanning()
+                    self.scanner.startScanning()
                     print("📱 Camera permission granted, starting scan")
                 } else {
-                    errorMessage = "Camera access required"
-                    showingError = true
+                    self.errorMessage = "Camera access required"
+                    self.showingError = true
                 }
             }
         }
     }
 }
 
-// MARK: - Scanning Frame with Animation (unchanged)
+// MARK: - Rest of the file remains the same...
 struct ScanningFrameWithAnimation: View {
     @State private var isAnimating = false
     
@@ -195,7 +224,6 @@ struct ScanningFrameWithAnimation: View {
     }
 }
 
-// MARK: - Corner Brackets (unchanged)
 struct CornerBracket: View {
     enum Position {
         case topLeft, topRight, bottomLeft, bottomRight
@@ -269,7 +297,6 @@ struct CornerBracket: View {
     }
 }
 
-// MARK: - Camera View (unchanged)
 struct CameraViewRepresentable: UIViewRepresentable {
     let scanner: BarcodeScannerUtility
     

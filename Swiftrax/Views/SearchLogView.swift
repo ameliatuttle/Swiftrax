@@ -15,6 +15,9 @@ struct SearchLogView: View {
     @State private var errorMessage = ""
     @State private var isSearchingAPI = false
     @State private var debugInfo = ""
+   
+   private let screenWidth = UIScreen.main.bounds.width
+   private let screenHeight = UIScreen.main.bounds.height
     
     // FIXED: Add focus state to properly manage keyboard
     @FocusState private var isSearchFocused: Bool
@@ -93,6 +96,26 @@ struct SearchLogView: View {
                         .padding(.vertical, 10)
                         .background(Color.blue.opacity(0.1))
                         .cornerRadius(10)
+                       
+                       Button("Test OFF") {
+                           testOpenFoodFactsAPI()
+                       }
+                       .padding(.horizontal, 8)
+                       .padding(.vertical, 10)
+                       .background(Color.green)
+                       .foregroundColor(.white)
+                       .cornerRadius(8)
+                       .font(.caption)
+                       
+                       Button("Test Seeds") {
+                           testBasicFoodsSeeding()
+                       }
+                       .padding(.horizontal, 8)
+                       .padding(.vertical, 10)
+                       .background(Color.blue)
+                       .foregroundColor(.white)
+                       .cornerRadius(8)
+                       .font(.caption)
                     }
                     
                     // Search Status
@@ -128,27 +151,27 @@ struct SearchLogView: View {
                 Divider()
                 
                 // Content
-                if isLoading && searchResults.isEmpty {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        
-                        Text("Searching...")
-                            .font(.headline)
-                        
-                        if isSearchingAPI {
-                            Text("Checking online food databases...")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        
-                        Spacer()
-                    }
-                    .padding()
-                } else if searchText.isEmpty {
+               if isLoading && searchResults.isEmpty {
+                  VStack(spacing: 16) {
+                     Spacer()
+                     
+                     ProgressView()
+                        .scaleEffect(1.2)
+                     
+                     Text("Searching...")
+                        .font(.headline)
+                     
+                     if isSearchingAPI {
+                        Text("Checking online food databases...")
+                           .font(.caption)
+                           .foregroundColor(.secondary)
+                           .multilineTextAlignment(.center)
+                     }
+                     
+                     Spacer()
+                  }
+                  .padding()
+               } else if searchResults.isEmpty && searchText.isEmpty {
                     ImprovedRecentLogsView(
                         recentLogs: recentLogs,
                         selectedMealType: selectedMealType,
@@ -210,6 +233,7 @@ struct SearchLogView: View {
             .onAppear {
                 setupInitialState()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             // FIXED: Add keyboard toolbar to properly dismiss keyboard
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
@@ -303,45 +327,113 @@ struct SearchLogView: View {
         loadRecentLogs()
     }
     
-    private func performSearch() {
-        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else {
-            clearSearch()
-            return
-        }
-        
-        Swift.print("🔍 SearchLogView: Starting enhanced fuzzy search for '\(searchText)'")
-        
-        // FIXED: Use Task for state updates
-        Task { @MainActor in
-            self.isLoading = true
-            self.isSearchingAPI = false
-        }
-        
-        DatabaseManager.shared.searchFoodsWithFuzzyMatching(query: searchText) { foods in
-            Swift.print("🔍 Found \(foods.count) results with fuzzy matching")
-            
-            let sortedFoods = foods.sorted { food1, food2 in
-                let score1 = self.calculateRelevanceScore(food: food1, query: self.searchText)
-                let score2 = self.calculateRelevanceScore(food: food2, query: self.searchText)
-                return score1 > score2
-            }
-            
-            // FIXED: Use Task for UI updates
-            Task { @MainActor in
-                self.searchResults = sortedFoods
-                self.isLoading = false
-                self.isSearchingAPI = false
-            }
-        }
-        
-        // FIXED: Delayed API indicator update
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-            if self.isLoading {
-                self.isSearchingAPI = true
-            }
-        }
-    }
+   private func performSearch() {
+       guard !searchText.isEmpty else {
+           clearSearch()
+           return
+       }
+       
+       Swift.print("\n🔍 ==> STARTING SEARCH FOR: '\(searchText)'")
+       
+       // FIXED: Use Task for state updates
+       Task { @MainActor in
+           self.isLoading = true
+           self.isSearchingAPI = true
+           self.debugInfo = "🔍 Smart searching for '\(searchText)'..."
+           self.searchResults = []
+       }
+       
+       Task {
+           Swift.print("🧠 Using SmartSearchManager with OpenFoodFacts...")
+           let smartResults = await SmartSearchManager.shared.searchFood(searchText)
+           Swift.print("🎯 SmartSearchManager returned \(smartResults.count) results:")
+           
+           for (index, food) in smartResults.prefix(10).enumerated() {
+               Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
+           }
+           
+           // Apply unit normalization
+           let normalizedResults = smartResults.map { UnitNormalizer.shared.normalizeFood($0) }
+           Swift.print("\n✨ After normalization: \(normalizedResults.count) results")
+           
+           for (index, food) in normalizedResults.prefix(5).enumerated() {
+               Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
+           }
+           
+           // Count results by source for debug info
+           let basicCount = normalizedResults.filter { $0.source == "BasicFoods" }.count
+           let openFoodFactsCount = normalizedResults.filter { $0.source == "OpenFoodFacts" }.count
+           let customCount = normalizedResults.filter { $0.source == "manual" }.count
+           
+           Task { @MainActor in
+               self.searchResults = normalizedResults
+               self.isLoading = false
+               self.isSearchingAPI = false
+               self.debugInfo = "✅ Found \(normalizedResults.count) results (\(basicCount) basic, \(openFoodFactsCount) OpenFoodFacts, \(customCount) custom)"
+           }
+       }
+   }
+   
+   private func testOpenFoodFactsAPI() {
+       print("🧪 Testing OpenFoodFacts API...")
+       
+       Task {
+           do {
+               // Test text search
+               let results = try await APIManager.shared.searchByText("apple")
+               print("🧪 OpenFoodFacts text search returned \(results.count) results for 'apple':")
+               
+               for (index, food) in results.prefix(5).enumerated() {
+                   print("  \(index + 1). '\(food.name)' - \(Int(food.nutritionInfo.calories ?? 0)) cal/\(food.servingSize)\(food.servingSizeUnit)")
+               }
+               
+               // Test barcode search
+               let barcodeResult = try await APIManager.shared.searchByBarcode("3017620422003")
+               if let food = barcodeResult {
+                   print("🧪 OpenFoodFacts barcode search found: '\(food.name)' - \(Int(food.nutritionInfo.calories ?? 0)) cal")
+               }
+               
+               Task { @MainActor in
+                   self.debugInfo = "🧪 OpenFoodFacts test: Found \(results.count) apple products via text search"
+               }
+               
+           } catch {
+               print("❌ OpenFoodFacts test error: \(error)")
+               Task { @MainActor in
+                   self.debugInfo = "❌ OpenFoodFacts test failed: \(error.localizedDescription)"
+               }
+           }
+       }
+   }
+   
+   private func testBasicFoodsSeeding() {
+       print("🧪 Testing basic foods seeding...")
+       
+       Task {
+           // Test that basic foods are in the database
+           DatabaseManager.shared.searchFoodsThreadSafe(query: "", limit: 100) { foods in
+               let basicFoods = foods.filter { $0.source == "BasicFoods" }
+               let openFoodFacts = foods.filter { $0.source == "OpenFoodFacts" }
+               let customFoods = foods.filter { $0.source == "manual" }
+               
+               print("🧪 Database contents:")
+               print("  Basic foods: \(basicFoods.count)")
+               print("  OpenFoodFacts: \(openFoodFacts.count)")
+               print("  Custom foods: \(customFoods.count)")
+               
+               // Test specific basic foods
+               let testFoods = ["Apple", "Chicken Breast", "White Rice", "Egg"]
+               for testFood in testFoods {
+                   let found = basicFoods.contains { $0.name == testFood }
+                   print("  \(testFood): \(found ? "✅ Found" : "❌ Missing")")
+               }
+               
+               Task { @MainActor in
+                   self.debugInfo = "🧪 Database has \(basicFoods.count) basic foods, \(openFoodFacts.count) OpenFoodFacts, \(customFoods.count) custom"
+               }
+           }
+       }
+   }
     
     private func clearSearch() {
         Task { @MainActor in
@@ -453,6 +545,7 @@ struct SearchLogView: View {
         }
     }
     
+    // FIXED: Enhanced relevance scoring for better search results
     private func calculateRelevanceScore(food: Food, query: String) -> Int {
         let queryLower = query.lowercased()
         let nameLower = food.name.lowercased()
@@ -460,17 +553,65 @@ struct SearchLogView: View {
         
         var score = 0
         
-        if nameLower == queryLower { score += 100 }
-        if nameLower.hasPrefix(queryLower) { score += 50 }
-        if brandLower == queryLower { score += 30 }
+        // HEAVILY prioritize exact matches
+        if nameLower == queryLower { score += 1000 }
         
-        let queryWords = queryLower.components(separatedBy: .whitespaces)
-        let matchingWords = queryWords.filter { word in
-            nameLower.contains(word) || brandLower.contains(word)
+        // Prioritize simple foods (fewer words = more basic)
+        let wordCount = nameLower.components(separatedBy: .whitespacesAndNewlines).count
+        if wordCount <= 2 { score += 300 }
+        else if wordCount <= 3 { score += 100 }
+        else if wordCount > 5 { score -= 200 }
+        else if wordCount > 8 { score -= 500 }
+        
+        // Boost USDA basic foods over branded
+        if food.source == "USDA" { score += 200 }
+        if food.source == "manual" { score += 150 }
+        if food.source == "OpenFoodFacts" { score += 50 }
+        
+        // Prioritize foods that start with the query
+        if nameLower.hasPrefix(queryLower) { score += 500 }
+        
+        // Penalize overly branded/processed foods
+        if brandLower.contains("inc") || brandLower.contains("llc") || brandLower.contains("company") || brandLower.contains("corp") {
+            score -= 300
         }
-        score += matchingWords.count * 10
         
-        if food.source == "manual" { score += 5 }
+        // Penalize foods with weird brand names in the food name itself
+        let commercialWords = ["frozen", "organic", "natural", "premium", "gourmet", "artisan", "deluxe"]
+        for word in commercialWords {
+            if nameLower.contains(word) && !queryLower.contains(word) {
+                score -= 50
+            }
+        }
+        
+        // Boost for reasonable calorie ranges (avoid weird outliers)
+        let calories = food.nutritionInfo.calories ?? 0
+        if calories > 0 && calories < 1000 { score += 50 }
+        if calories > 1000 { score -= 100 }
+        if calories == 0 { score -= 200 } // Penalize zero-calorie oddities
+        
+        // Boost basic food patterns
+        let basicFoodPatterns = ["egg", "milk", "sugar", "flour", "butter", "salt", "rice", "chicken", "beef", "apple", "banana", "bread", "cheese"]
+        for pattern in basicFoodPatterns {
+            if queryLower.contains(pattern) && nameLower.contains(pattern) {
+                // Check if this is a simple version of the food
+                if nameLower == pattern || nameLower == "\(pattern)s" || nameLower.hasPrefix("\(pattern),") {
+                    score += 400
+                }
+                // Penalize complex versions when looking for basic foods
+                else if wordCount > 4 {
+                    score -= 100
+                }
+            }
+        }
+        
+        // Penalize foods with numbers in weird places (often processed foods)
+        if nameLower.contains(#"\d+"#) && !queryLower.contains(#"\d+"#) {
+            score -= 100
+        }
+        
+        // Basic containment (lowest priority)
+        if nameLower.contains(queryLower) { score += 25 }
         
         return score
     }

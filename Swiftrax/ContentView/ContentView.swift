@@ -55,21 +55,13 @@ struct ContentView: View {
                 }
                 .tag(5)
         }
-        .background(Color.appBackground) // This will now work properly
+        .background(Color.appBackground)
         .frame(width: screenWidth, height: screenHeight)
-        .accentColor(Color.primaryAccent) // Using semantic accent color
-        // FIXED: Only apply preferredColorScheme when user explicitly chooses light/dark
-        // Let system handle it when set to "system"
-        .apply { view in
-            switch currentTheme {
-            case .system:
-                view // Don't override system - let it work naturally
-            case .light:
-                view.preferredColorScheme(.light)
-            case .dark:
-                view.preferredColorScheme(.dark)
-            }
-        }
+        .accentColor(Color.primaryAccent)
+        // FIXED: Use id() to prevent complete navigation reset on theme changes
+        //.id("ContentView-\(currentTheme.rawValue)")
+        // FIXED: Apply color scheme more smoothly
+        .preferredColorScheme(currentTheme.colorScheme)
         .onAppear {
             print("🚀 APP STARTED - Theme: \(currentTheme.displayName)")
             print("🎨 Color scheme override: \(currentTheme == .system ? "NONE (system)" : currentTheme.rawValue)")
@@ -84,6 +76,8 @@ struct ContentView: View {
             // Print available units for debugging
             print("📏 Available measurement units: \(MeasurementUnit.allCases.map { $0.displayName }.joined(separator: ", "))")
         }
+        // FIXED: Add smooth animation for theme transitions
+        .animation(.easeInOut(duration: 0.3), value: currentTheme.rawValue)
     }
     
     private func loadUserTheme() {
@@ -91,7 +85,10 @@ struct ContentView: View {
         DatabaseManager.shared.getUserSettingsAsync { user in
             let themeToApply = user.theme.rawValue
             if selectedTheme != themeToApply {
-                selectedTheme = themeToApply
+                // FIXED: Use withAnimation to smooth the theme change and prevent navigation disruption
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    selectedTheme = themeToApply
+                }
                 print("🎨 Updated theme from user settings: \(themeToApply)")
             }
         }

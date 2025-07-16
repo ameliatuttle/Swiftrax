@@ -128,4 +128,33 @@ extension Food {
     var suggestedUnits: [MeasurementUnit] {
         return UnitConverter.shared.getSuggestedUnits(for: self)
     }
+   
+   // Add this initializer to handle legacy data without source field
+   init(from decoder: Decoder) throws {
+       let container = try decoder.container(keyedBy: CodingKeys.self)
+       
+       id = try container.decode(UUID.self, forKey: .id)
+       name = try container.decode(String.self, forKey: .name)
+       barcode = try container.decodeIfPresent(String.self, forKey: .barcode)
+       nutritionInfo = try container.decode(NutritionInfo.self, forKey: .nutritionInfo)
+       servingSize = try container.decode(Double.self, forKey: .servingSize)
+       servingSizeUnit = try container.decode(String.self, forKey: .servingSizeUnit)
+       brand = try container.decodeIfPresent(String.self, forKey: .brand)
+       isCustom = try container.decode(Bool.self, forKey: .isCustom)
+       dateAdded = try container.decode(Date.self, forKey: .dateAdded)
+       recipeId = try container.decodeIfPresent(UUID.self, forKey: .recipeId)
+       
+       // Handle missing source field for legacy data
+       source = try container.decodeIfPresent(String.self, forKey: .source) ?? "manual"
+       
+       // Handle missing lastUpdated field for legacy data
+       lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
+   }
+
+   // Add the CodingKeys enum if it doesn't exist
+   enum CodingKeys: String, CodingKey {
+       case id, name, barcode, nutritionInfo, servingSize, servingSizeUnit
+       case brand, isCustom, dateAdded, recipeId, source, lastUpdated
+   }
 }
+

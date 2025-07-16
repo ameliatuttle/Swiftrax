@@ -4,6 +4,9 @@ struct RecipesView: View {
     @StateObject private var viewModel = RecipesViewModel()
     @State private var showingCreateRecipe = false
     @State private var searchText = ""
+   
+   private let screenWidth = UIScreen.main.bounds.width
+   private let screenHeight = UIScreen.main.bounds.height
     
     var filteredRecipes: [Recipe] {
         if searchText.isEmpty {
@@ -86,6 +89,7 @@ struct RecipesView: View {
                 DatabaseManager.shared.testDatabaseConnection()
                 viewModel.loadRecipes()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $showingCreateRecipe) {
             RecipeCreationView()

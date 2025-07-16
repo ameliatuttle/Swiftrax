@@ -1,11 +1,9 @@
 import Foundation
 
-// Remove @MainActor from here - it's causing the async issues
 class APIManager: ObservableObject {
     static let shared = APIManager()
     
     private let session: URLSession
-    private let usdaAPIKey = "ebF03jerwcmtyPgXfs7PSKy6BkJjalqXHd4xBVfP"
     
     private init() {
         let config = URLSessionConfiguration.default
@@ -66,12 +64,15 @@ class APIManager: ObservableObject {
     }
     
     // MARK: - Public API Methods
+    
+    /// Search by barcode using OpenFoodFacts
     func searchByBarcode(_ barcode: String) async throws -> Food? {
         return try await OpenFoodFactsAPI.searchByBarcode(barcode, using: self)
     }
     
+    /// Search by text using OpenFoodFacts
     func searchByText(_ query: String, pageSize: Int = 25) async throws -> [Food] {
-        return try await USDAFoodAPI.searchByText(query, pageSize: pageSize, using: self)
+        return try await OpenFoodFactsAPI.searchByText(query, pageSize: pageSize, using: self)
     }
     
     // MARK: - Internal helper for API classes
@@ -81,10 +82,5 @@ class APIManager: ObservableObject {
         responseType: T.Type
     ) async throws -> T {
         return try await performRequest(url: url, headers: headers, responseType: responseType)
-    }
-    
-    // Make this a simple property - no async needed
-    internal var apiKey: String {
-        return usdaAPIKey
     }
 }

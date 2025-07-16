@@ -3,6 +3,9 @@ import SwiftUI
 struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModelMain()
     @State private var selectedTimeRange: TimeRange = .week
+   
+   private let screenWidth = UIScreen.main.bounds.width
+   private let screenHeight = UIScreen.main.bounds.height
     
     var body: some View {
         NavigationView {
@@ -94,6 +97,7 @@ struct HistoryView: View {
                 viewModel.loadHistory(for: selectedTimeRange)
                 viewModel.loadUserGoals()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

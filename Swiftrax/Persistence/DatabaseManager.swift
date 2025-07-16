@@ -330,77 +330,200 @@ class DatabaseManager: ObservableObject {
     }
     
     // MARK: - Enhanced Search with Fuzzy Matching
-    func searchFoodsWithFuzzyMatching(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
-        operationQueue.addOperation {
-            var allResults: [Food] = []
-            
-            // 1. Exact matches first
-            let exactResults = self.performExactSearch(query: query, limit: limit/4)
-            allResults.append(contentsOf: exactResults)
-            
-            // 2. Starts with matches
-            if allResults.count < limit {
-                let startsWithResults = self.performStartsWithSearch(query: query, limit: limit/4)
-                    .filter { food in !allResults.contains { $0.id == food.id } }
-                allResults.append(contentsOf: startsWithResults)
-            }
-            
-            // 3. Contains matches
-            if allResults.count < limit {
-                let containsResults = self.performContainsSearch(query: query, limit: limit/2)
-                    .filter { food in !allResults.contains { $0.id == food.id } }
-                allResults.append(contentsOf: containsResults)
-            }
-            
-            // 4. Fuzzy matches (split terms)
-            if allResults.count < limit {
-                let fuzzyResults = self.performFuzzySearch(query: query, limit: limit)
-                    .filter { food in !allResults.contains { $0.id == food.id } }
-                allResults.append(contentsOf: fuzzyResults)
-            }
-            
-            Swift.print("🔍 Found \(allResults.count) local results for '\(query)'")
-            
-            // 5. API search if needed
-            if allResults.count < 5 {
-                Task {
-                    do {
-                        let apiResults = try await APIManager.shared.searchByText(query)
-                        Swift.print("🌐 Found \(apiResults.count) API results")
-                        
-                        // Save API results
-                        for food in apiResults {
-                            self.operationQueue.addOperation {
-                                _ = self.saveFoodSync(food)
-                            }
-                        }
-                        
-                        // Filter duplicates
-                        let newResults = apiResults.filter { apiFood in
-                            !allResults.contains { localFood in
-                                self.areFoodsSimilar(apiFood, localFood)
-                            }
-                        }
-                        
-                        allResults.append(contentsOf: newResults)
-                        
-                        DispatchQueue.main.async {
-                            completion(allResults)
-                        }
-                    } catch {
-                        Swift.print("❌ API search failed: \(error.localizedDescription)")
-                        DispatchQueue.main.async {
-                            completion(allResults)
-                        }
-                    }
-                }
-            } else {
-                DispatchQueue.main.async {
-                    completion(allResults)
-                }
-            }
-        }
-    }
+   func searchFoodsWithFuzzyMatching(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
+       operationQueue.addOperation {
+           var allResults: [Food] = []
+           
+           // 1. Exact matches first
+           let exactResults = self.performExactSearch(query: query, limit: limit/4)
+           allResults.append(contentsOf: exactResults)
+           
+           // 2. Starts with matches
+           if allResults.count < limit {
+               let startsWithResults = self.performStartsWithSearch(query: query, limit: limit/4)
+                   .filter { food in !allResults.contains { $0.id == food.id } }
+               allResults.append(contentsOf: startsWithResults)
+           }
+           
+           // 3. Contains matches
+           if allResults.count < limit {
+               let containsResults = self.performContainsSearch(query: query, limit: limit/2)
+                   .filter { food in !allResults.contains { $0.id == food.id } }
+               allResults.append(contentsOf: containsResults)
+           }
+           
+           // 4. Fuzzy matches (split terms)
+           if allResults.count < limit {
+               let fuzzyResults = self.performFuzzySearch(query: query, limit: limit)
+                   .filter { food in !allResults.contains { $0.id == food.id } }
+               allResults.append(contentsOf: fuzzyResults)
+           }
+           
+           Swift.print("🔍 Found \(allResults.count) local results for '\(query)'")
+           
+           // 5. IMPROVED: Only search API if we have very few good results
+           if allResults.count < 3 {
+               Task {
+                   do {
+                       let apiResults = try await APIManager.shared.searchByText(query)
+                       Swift.print("🌐 Found \(apiResults.count) API results")
+                       
+                       // FIXED: Better filtering and prioritization of API results
+                       let filteredAPIResults = self.filterAndPrioritizeAPIResults(apiResults, query: query)
+                       
+                       // Save API results
+                       for food in filteredAPIResults {
+                           self.operationQueue.addOperation {
+                               _ = self.saveFoodSync(food)
+                           }
+                       }
+                       
+                       // Filter duplicates
+                       let newResults = filteredAPIResults.filter { apiFood in
+                           !allResults.contains { localFood in
+                               self.areFoodsSimilar(apiFood, localFood)
+                           }
+                       }
+                       
+                       allResults.append(contentsOf: newResults)
+                       
+                       // FIXED: Re-sort all results by relevance
+                       let finalResults = self.sortFoodsByRelevance(allResults, query: query)
+                       
+                       DispatchQueue.main.async {
+                           completion(finalResults)
+                       }
+                   } catch {
+                       Swift.print("❌ API search failed: \(error.localizedDescription)")
+                       let finalResults = self.sortFoodsByRelevance(allResults, query: query)
+                       DispatchQueue.main.async {
+                           completion(finalResults)
+                       }
+                   }
+               }
+           } else {
+               let finalResults = self.sortFoodsByRelevance(allResults, query: query)
+               DispatchQueue.main.async {
+                   completion(finalResults)
+               }
+           }
+       }
+   }
+
+   // FIXED: Add better API result filtering
+   private func filterAndPrioritizeAPIResults(_ foods: [Food], query: String) -> [Food] {
+       let queryLower = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+       
+       return foods.filter { food in
+           let name = food.name.lowercased()
+           let brand = food.brand?.lowercased() ?? ""
+           
+           // Filter out obvious junk results
+           if brand.contains("just, inc") || brand.contains("mars chocolate") || brand.contains("ross acquisition") {
+               return false
+           }
+           
+           // Filter out results with way too many words (likely processed foods)
+           if name.components(separatedBy: " ").count > 6 {
+               return false
+           }
+           
+           // Filter out results with weird units
+           if food.servingSizeUnit.lowercased().contains("mlt") || food.servingSizeUnit.lowercased().contains("grm") {
+               return false
+           }
+           
+           // Prioritize basic foods
+           let basicFoods = ["egg", "milk", "sugar", "flour", "butter", "salt", "rice", "chicken", "beef", "apple", "banana", "bread", "cheese"]
+           for basicFood in basicFoods {
+               if queryLower.contains(basicFood) {
+                   // For basic foods, only keep simple results
+                   if name.contains(basicFood) && name.components(separatedBy: " ").count <= 3 {
+                       return true
+                   }
+                   // Filter out complex branded versions
+                   if name.contains(basicFood) && name.components(separatedBy: " ").count > 4 {
+                       return false
+                   }
+               }
+           }
+           
+           return true
+       }.sorted { food1, food2 in
+           let score1 = calculateAPIFoodScore(food1, query: queryLower)
+           let score2 = calculateAPIFoodScore(food2, query: queryLower)
+           return score1 > score2
+       }
+   }
+
+   // FIXED: Better scoring for API results
+   private func calculateAPIFoodScore(_ food: Food, query: String) -> Int {
+       let name = food.name.lowercased()
+       var score = 0
+       
+       // Heavily prioritize exact matches
+       if name == query { score += 1000 }
+       
+       // Prioritize simple foods
+       let wordCount = name.components(separatedBy: " ").count
+       if wordCount <= 2 { score += 500 }
+       else if wordCount <= 3 { score += 200 }
+       else if wordCount > 5 { score -= 300 }
+       
+       // Boost if starts with query
+       if name.hasPrefix(query) { score += 300 }
+       
+       // Boost reasonable calorie ranges
+       let calories = food.nutritionInfo.calories ?? 0
+       if calories > 0 && calories < 500 { score += 100 }
+       if calories > 1000 { score -= 200 }
+       
+       // Penalize zero calories (often weird products)
+       if calories == 0 { score -= 400 }
+       
+       return score
+   }
+
+   // FIXED: Add method to sort all results by relevance
+   private func sortFoodsByRelevance(_ foods: [Food], query: String) -> [Food] {
+       return foods.sorted { food1, food2 in
+           let score1 = calculateFinalRelevanceScore(food1, query: query)
+           let score2 = calculateFinalRelevanceScore(food2, query: query)
+           return score1 > score2
+       }
+   }
+
+   private func calculateFinalRelevanceScore(_ food: Food, query: String) -> Int {
+       let queryLower = query.lowercased()
+       let nameLower = food.name.lowercased()
+       var score = 0
+       
+       // Exact match gets highest priority
+       if nameLower == queryLower { score += 2000 }
+       
+       // Simple foods get priority
+       let wordCount = nameLower.components(separatedBy: " ").count
+       if wordCount <= 2 { score += 800 }
+       else if wordCount <= 3 { score += 400 }
+       else if wordCount > 5 { score -= 300 }
+       
+       // Local/manual foods get slight boost
+       if food.source == "manual" { score += 100 }
+       
+       // Starts with query
+       if nameLower.hasPrefix(queryLower) { score += 600 }
+       
+       // Contains query
+       if nameLower.contains(queryLower) { score += 100 }
+       
+       // Reasonable calories
+       let calories = food.nutritionInfo.calories ?? 0
+       if calories > 0 && calories < 800 { score += 50 }
+       if calories > 1200 { score -= 100 }
+       if calories == 0 { score -= 500 }
+       
+       return score
+   }
     
     // MARK: - API Integration Methods
     func getFoodByBarcode(_ barcode: String, completion: @escaping (Food?) -> Void) {

@@ -21,6 +21,9 @@ struct ManualEntryView: View {
     @State private var isAdvancedMode = false
     @State private var showingValidationError = false
     @State private var validationErrorMessage = ""
+   
+   private let screenWidth = UIScreen.main.bounds.width
+   private let screenHeight = UIScreen.main.bounds.height
     
     // FIXED: Add focus states for proper keyboard management
     @FocusState private var focusedField: Field?
@@ -272,6 +275,7 @@ struct ManualEntryView: View {
             .onChange(of: foodName) { _ in validateFormAsync() }
             .onChange(of: servingSize) { _ in validateFormAsync() }
             .onChange(of: calories) { _ in validateFormAsync() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(isPresented: $showingUnitPicker) {
             NavigationView {

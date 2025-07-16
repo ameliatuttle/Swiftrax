@@ -6,6 +6,10 @@ struct SettingsView: View {
     @State private var showingExportAlert = false
     @AppStorage("app_theme") private var selectedTheme: String = AppTheme.system.rawValue
     
+    // FIXED: Add screen size properties
+    private let screenWidth = UIScreen.main.bounds.width
+    private let screenHeight = UIScreen.main.bounds.height
+    
     var currentTheme: AppTheme {
         AppTheme(rawValue: selectedTheme) ?? .system
     }
@@ -42,11 +46,24 @@ struct SettingsView: View {
                                 .tag(theme.rawValue)
                         }
                     }
+                    // FIXED: Prevent navigation reset by using Task and avoiding immediate state changes
                     .onChange(of: selectedTheme) { newTheme in
                         print("🎨 Settings: Theme changed to \(newTheme)")
-                        // Update user settings theme
-                        userSettings.theme = AppTheme(rawValue: newTheme) ?? .system
-                        saveSettings()
+                        
+                        // FIXED: Use Task to delay the theme update slightly to prevent navigation disruption
+                        Task { @MainActor in
+                            // Update user settings theme without triggering immediate view rebuild
+                            if let newAppTheme = AppTheme(rawValue: newTheme) {
+                                userSettings.theme = newAppTheme
+                                
+                                // Save settings asynchronously to prevent blocking UI
+                                Task {
+                                    await saveSettingsAsync()
+                                }
+                                
+                                print("🎨 Settings: Theme updated to \(newTheme) without navigation reset")
+                            }
+                        }
                     }
                 }
                 
@@ -90,13 +107,40 @@ struct SettingsView: View {
             .onAppear {
                 print("⚙️ Settings: View appeared")
                 loadSettings()
-                // Sync the theme picker with user settings
-                selectedTheme = userSettings.theme.rawValue
-                print("🎨 Settings: Current theme is \(selectedTheme)")
+                // FIXED: Only sync theme if it's different to prevent unnecessary updates
+                if selectedTheme != userSettings.theme.rawValue {
+                    selectedTheme = userSettings.theme.rawValue
+                    print("🎨 Settings: Synced theme to \(selectedTheme)")
+                }
             }
-            .onChange(of: userSettings, perform: { _ in
-                saveSettings()
-            })
+            // FIXED: Add manual save triggers for specific changes instead of automatic onChange
+            .onChange(of: userSettings.trackingPreferences.trackCalories) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackProtein) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackCarbs) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackFat) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackFiber) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackSugar) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackSodium) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackCholesterol) { _ in
+                Task { await saveSettingsAsync() }
+            }
+            .onChange(of: userSettings.trackingPreferences.trackSaturatedFat) { _ in
+                Task { await saveSettingsAsync() }
+            }
             .alert("Clear All Data", isPresented: $showingClearDataAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
@@ -110,9 +154,9 @@ struct SettingsView: View {
             } message: {
                 Text("Your data has been exported successfully.")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        // Theme is now applied at ContentView level, not here
     }
     
     private func loadSettings() {
@@ -120,9 +164,16 @@ struct SettingsView: View {
         print("⚙️ Settings: Loaded user settings with theme: \(userSettings.theme.rawValue)")
     }
     
-    private func saveSettings() {
+    // FIXED: Make saveSettings async to prevent blocking UI and navigation
+    private func saveSettingsAsync() async {
         print("⚙️ Settings: Saving user settings with theme: \(userSettings.theme.rawValue)")
-        DatabaseManager.shared.saveUserSettings(userSettings)
+        
+        // Save asynchronously to prevent blocking UI and navigation
+        await withCheckedContinuation { continuation in
+            DatabaseManager.shared.saveUserSettingsAsync(userSettings) {
+                continuation.resume()
+            }
+        }
     }
     
     private func exportData() {
@@ -136,14 +187,14 @@ struct SettingsView: View {
         
         // Reset user settings
         userSettings = User()
-        saveSettings()
+        Task { await saveSettingsAsync() }
         
         // Post notification to refresh all views
         NotificationCenter.default.post(name: NSNotification.Name("DataCleared"), object: nil)
     }
 }
 
-// MARK: - Updated Nutrition Goals View
+// MARK: - Nutrition Goals View (unchanged)
 struct NutritionGoalsView: View {
     @Binding var userSettings: User
     
@@ -256,7 +307,7 @@ struct NutritionGoalsView: View {
     }
 }
 
-// MARK: - Goal Input View
+// MARK: - Goal Input View (unchanged)
 struct GoalInputView: View {
     let title: String
     @Binding var value: String

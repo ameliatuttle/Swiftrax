@@ -7,6 +7,8 @@ struct RecipeCreationView: View {
     @State private var showingAddIngredient = false
     @State private var showingSuccessAlert = false
     @State private var successMessage = ""
+    @State private var showingQuantityEntry = false
+    @State private var selectedFood: Food?
     
     @Environment(\.presentationMode) var presentationMode
     
@@ -90,10 +92,27 @@ struct RecipeCreationView: View {
                 }
             )
         }
+        // 🆕 UPDATED: Use SearchLogView in recipe mode instead of custom search
         .sheet(isPresented: $showingAddIngredient) {
-            RecipeIngredientSearchView { ingredient in
-                print("✅ Ingredient selected: \(ingredient.food.name)")
-                addIngredient(ingredient)
+            SearchLogView(forRecipeIngredients: { food in
+                print("✅ Food selected for recipe: \(food.name)")
+                selectedFood = food
+                showingAddIngredient = false
+                
+                // Show quantity entry after a brief delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    showingQuantityEntry = true
+                }
+            })
+        }
+        // 🆕 NEW: Separate quantity entry sheet
+        .sheet(isPresented: $showingQuantityEntry) {
+            if let food = selectedFood {
+                RecipeQuantityEntryView(food: food) { quantity in
+                    let ingredient = RecipeIngredient(food: food, quantity: quantity)
+                    addIngredient(ingredient)
+                    selectedFood = nil
+                }
             }
         }
         .alert("Recipe Created!", isPresented: $showingSuccessAlert) {
@@ -125,7 +144,6 @@ struct RecipeCreationView: View {
     
     private func addIngredient(_ ingredient: RecipeIngredient) {
         ingredients.append(ingredient)
-        showingAddIngredient = false // Close the sheet
         print("✅ Added ingredient: \(ingredient.food.name) - \(ingredient.quantity) \(ingredient.food.servingSizeUnit)")
     }
     
@@ -156,121 +174,7 @@ struct RecipeCreationView: View {
     }
 }
 
-// MARK: - SIMPLIFIED Ingredient Search View (Navigation-based)
-struct RecipeIngredientSearchView: View {
-    @State private var searchText = ""
-    @State private var searchResults: [Food] = []
-    @State private var isLoading = false
-    
-    let onIngredientAdded: (RecipeIngredient) -> Void
-    @Environment(\.presentationMode) var presentationMode
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Simple SwiftUI Search Bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    
-                    TextField("Search ingredients...", text: $searchText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .onSubmit {
-                            searchFoods()
-                        }
-                        .onChange(of: searchText) { newValue in
-                            if newValue.count > 2 {
-                                searchFoods()
-                            } else if newValue.isEmpty {
-                                searchResults = []
-                            }
-                        }
-                }
-                .padding()
-                
-                Divider()
-                
-                // Search Results
-                if isLoading {
-                    VStack {
-                        Spacer()
-                        ProgressView("Searching ingredients...")
-                            .foregroundColor(.primary)
-                        Spacer()
-                    }
-                } else if searchText.isEmpty {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "magnifyingglass")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("Search for ingredients")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Text("Type a food name to find ingredients")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                } else if searchResults.isEmpty {
-                    VStack {
-                        Spacer()
-                        Image(systemName: "exclamationmark.magnifyingglass")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("No ingredients found")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Text("Try a different search term")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                } else {
-                    List {
-                        ForEach(searchResults) { food in
-                            NavigationLink(destination: RecipeQuantityEntryView(food: food) { quantity in
-                                let ingredient = RecipeIngredient(food: food, quantity: quantity)
-                                onIngredientAdded(ingredient)
-                            }) {
-                                IngredientSearchRow(food: food)
-                            }
-                        }
-                    }
-                    .listStyle(PlainListStyle())
-                }
-            }
-            .navigationTitle("Add Ingredient")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(
-                leading: Button("Cancel") {
-                    presentationMode.wrappedValue.dismiss()
-                }
-            )
-            .onAppear {
-                print("🔍 RecipeIngredientSearchView appeared")
-            }
-        }
-    }
-    
-    private func searchFoods() {
-        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else {
-            searchResults = []
-            return
-        }
-        
-        isLoading = true
-        print("🔍 Searching for ingredients: '\(searchText)'")
-        
-        DatabaseManager.shared.searchFoodsAsync(query: searchText) { foods in
-            self.searchResults = foods
-            self.isLoading = false
-            print("🔍 Found \(foods.count) ingredient results")
-        }
-    }
-}
-
-// MARK: - Recipe Quantity Entry View (Now navigation-based)
+// MARK: - 🆕 NEW: Simplified Recipe Quantity Entry View
 struct RecipeQuantityEntryView: View {
     let food: Food
     let onQuantitySelected: (Double) -> Void
@@ -287,88 +191,195 @@ struct RecipeQuantityEntryView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Food Info
-            VStack(alignment: .leading, spacing: 8) {
-                Text(food.name)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                if let brand = food.brand {
-                    Text(brand)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                Text("Base serving: \(food.servingSize.formattedNutrition) \(food.servingSizeUnit)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(12)
-            
-            // Quantity Input
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Quantity for Recipe")
-                    .font(.headline)
-                
-                HStack {
-                    TextField("Amount", text: $quantity)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+        NavigationView {
+            VStack(spacing: 20) {
+                // Food Info Card
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(food.name)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .lineLimit(2)
+                            
+                            if let brand = food.brand {
+                                Text(brand)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Source indicator
+                        VStack(spacing: 2) {
+                            Text(food.sourceEmoji)
+                                .font(.title2)
+                            Text(food.source)
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     
-                    Text(selectedUnit)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                }
-            }
-            
-            // Nutrition Preview
-            if let quantityValue = Double(quantity), quantityValue > 0 {
-                VStack(spacing: 8) {
-                    Text("Nutrition for \(quantity) \(selectedUnit)")
-                        .font(.headline)
+                    Divider()
                     
-                    let scale = quantityValue / food.servingSize
-                    let scaledCalories = (food.nutritionInfo.calories ?? 0) * scale
+                    HStack {
+                        Text("Base serving:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        Text("\(food.servingSize.formattedNutrition) \(food.servingSizeUnit)")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
                     
-                    Text("\(Int(scaledCalories)) calories")
-                        .font(.title3)
-                        .fontWeight(.semibold)
+                    // Nutrition summary
+                    HStack(spacing: 16) {
+                        NutritionChip(label: "Cal", value: food.nutritionInfo.calories ?? 0, color: .orange)
+                        NutritionChip(label: "P", value: food.nutritionInfo.protein ?? 0, color: .red)
+                        NutritionChip(label: "C", value: food.nutritionInfo.carbohydrates ?? 0, color: .blue)
+                        NutritionChip(label: "F", value: food.nutritionInfo.fat ?? 0, color: .purple)
+                        Spacer()
+                    }
                 }
                 .padding()
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            Spacer()
-            
-            // Add Button
-            Button(action: {
-                if let quantityValue = Double(quantity), quantityValue > 0 {
-                    print("✅ Adding ingredient: \(food.name) - \(quantityValue) \(selectedUnit)")
-                    onQuantitySelected(quantityValue)
-                    // Navigate back to root (recipe creation)
-                    presentationMode.wrappedValue.dismiss()
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(12)
+                
+                // Quantity Input
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Recipe Quantity")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    HStack(spacing: 12) {
+                        TextField("Amount", text: $quantity)
+                            .keyboardType(.decimalPad)
+                            .font(.title2)
+                            .fontWeight(.medium)
+                            .multilineTextAlignment(.center)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(12)
+                        
+                        VStack(spacing: 4) {
+                            Text(selectedUnit)
+                                .font(.title3)
+                                .fontWeight(.bold)
+                            
+                            Text("unit")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(12)
+                    }
+                    
+                    Text("This is how much of this ingredient you'll use in the recipe")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-            }) {
-                Text("Add to Recipe")
+                
+                // Nutrition Preview for Recipe Quantity
+                if let quantityValue = Double(quantity), quantityValue > 0 {
+                    VStack(spacing: 12) {
+                        Text("Nutrition Contribution")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        let scale = quantityValue / food.servingSize
+                        let scaledCalories = (food.nutritionInfo.calories ?? 0) * scale
+                        let scaledProtein = (food.nutritionInfo.protein ?? 0) * scale
+                        let scaledCarbs = (food.nutritionInfo.carbohydrates ?? 0) * scale
+                        let scaledFat = (food.nutritionInfo.fat ?? 0) * scale
+                        
+                        HStack {
+                            VStack(spacing: 4) {
+                                Text("\(Int(scaledCalories))")
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.orange)
+                                Text("calories")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            HStack(spacing: 20) {
+                                VStack(spacing: 2) {
+                                    Text("\(scaledProtein.formattedNutrition)g")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.red)
+                                    Text("Protein")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                VStack(spacing: 2) {
+                                    Text("\(scaledCarbs.formattedNutrition)g")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.blue)
+                                    Text("Carbs")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                VStack(spacing: 2) {
+                                    Text("\(scaledFat.formattedNutrition)g")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.purple)
+                                    Text("Fat")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                }
+                
+                Spacer()
+                
+                // Add Button
+                Button(action: {
+                    if let quantityValue = Double(quantity), quantityValue > 0 {
+                        print("✅ Adding ingredient: \(food.name) - \(quantityValue) \(selectedUnit)")
+                        onQuantitySelected(quantityValue)
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add to Recipe")
+                    }
                     .font(.headline)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(isValid ? Color.blue : Color.gray)
                     .cornerRadius(12)
+                }
+                .disabled(!isValid)
             }
-            .disabled(!isValid)
-        }
-        .padding()
-        .navigationTitle("Add Ingredient")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            print("📏 RecipeQuantityEntryView appeared for: \(food.name)")
+            .padding()
+            .navigationTitle("Add Ingredient")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    presentationMode.wrappedValue.dismiss()
+                }
+            )
         }
     }
     
@@ -378,7 +389,29 @@ struct RecipeQuantityEntryView: View {
     }
 }
 
-// MARK: - Helper components
+// MARK: - Nutrition Chip for Recipe View
+struct NutritionChip: View {
+    let label: String
+    let value: Double
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .fontWeight(.bold)
+            Text("\(Int(value))")
+                .font(.caption2)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.15))
+        .cornerRadius(6)
+    }
+}
+
+// MARK: - Helper components (unchanged)
 struct IngredientRow: View {
     let ingredient: RecipeIngredient
     let onDelete: () -> Void
@@ -428,50 +461,6 @@ struct NutritionPreviewRow: View {
             Text("\(value.formattedNutrition) \(unit)")
                 .foregroundColor(.secondary)
         }
-    }
-}
-
-struct IngredientSearchRow: View {
-    let food: Food
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(food.name)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
-                
-                if let brand = food.brand {
-                    Text(brand)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Text("per \(food.servingSize.formattedNutrition) \(food.servingSizeUnit)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(food.nutritionInfo.calories ?? 0))")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                
-                Text("cal")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            Image(systemName: "chevron.right")
-                .foregroundColor(.secondary)
-                .font(.caption)
-        }
-        .padding(.vertical, 4)
     }
 }
 

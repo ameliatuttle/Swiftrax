@@ -1,5 +1,6 @@
 import SwiftUI
-// MARK: - Complete Updated SearchLogView with Navigation and State Fixes
+
+// MARK: - 🆕 NEW: Enhanced SearchLogView with Recipe Mode Support
 
 struct SearchLogView: View {
     @State private var searchText = ""
@@ -22,32 +23,53 @@ struct SearchLogView: View {
     // FIXED: Add focus state to properly manage keyboard
     @FocusState private var isSearchFocused: Bool
     
+    // 🆕 NEW: Recipe mode support
+    let mode: SearchMode
     let preselectedMealType: MealType?
+    let onFoodSelected: ((Food) -> Void)?  // For recipe mode
     
+    // 🆕 NEW: Search modes
+    enum SearchMode {
+        case foodLogging(MealType?)  // Regular food logging with meal types
+        case recipeIngredient        // Recipe ingredient selection (no meal types)
+    }
+    
+    // 🆕 NEW: Multiple initializers for different use cases
     init(preselectedMealType: MealType? = nil) {
+        self.mode = .foodLogging(preselectedMealType)
         self.preselectedMealType = preselectedMealType
+        self.onFoodSelected = nil
+    }
+    
+    init(forRecipeIngredients onFoodSelected: @escaping (Food) -> Void) {
+        self.mode = .recipeIngredient
+        self.preselectedMealType = nil
+        self.onFoodSelected = onFoodSelected
     }
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Header with meal type picker
+                // Header - conditionally show meal type picker
                 VStack(spacing: 12) {
-                    Picker("Meal Type", selection: $selectedMealType) {
-                        ForEach(MealType.allCases, id: \.self) { mealType in
-                            Text("\(mealType.emoji) \(mealType.rawValue)")
-                                .tag(mealType)
+                    // 🆕 UPDATED: Only show meal type picker in food logging mode
+                    if case .foodLogging = mode {
+                        Picker("Meal Type", selection: $selectedMealType) {
+                            ForEach(MealType.allCases, id: \.self) { mealType in
+                                Text("\(mealType.emoji) \(mealType.rawValue)")
+                                    .tag(mealType)
+                            }
                         }
+                        .pickerStyle(SegmentedPickerStyle())
                     }
-                    .pickerStyle(SegmentedPickerStyle())
                     
-                    // FIXED: Enhanced Search Bar with proper focus management
+                    // Enhanced Search Bar with proper focus management
                     HStack(spacing: 12) {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(.secondary)
                             
-                            TextField("Search foods...", text: $searchText)
+                            TextField(searchPlaceholder, text: $searchText)
                                 .focused($isSearchFocused)
                                 .onSubmit {
                                     performSearch()
@@ -56,7 +78,7 @@ struct SearchLogView: View {
                                     if newValue.isEmpty {
                                         clearSearch()
                                     } else if newValue.count > 2 {
-                                        // FIXED: Use Task for delayed search
+                                        // Use Task for delayed search
                                         Task {
                                             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                                             if searchText == newValue {
@@ -82,7 +104,7 @@ struct SearchLogView: View {
                         
                         Button(action: {
                             print("📱 🎯 SEARCHLOGVIEW: Barcode scanner button tapped")
-                            // FIXED: Dismiss keyboard before showing scanner
+                            // Dismiss keyboard before showing scanner
                             isSearchFocused = false
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 showingBarcodeScanner = true
@@ -96,26 +118,6 @@ struct SearchLogView: View {
                         .padding(.vertical, 10)
                         .background(Color.blue.opacity(0.1))
                         .cornerRadius(10)
-                       
-                       Button("Test OFF") {
-                           testOpenFoodFactsAPI()
-                       }
-                       .padding(.horizontal, 8)
-                       .padding(.vertical, 10)
-                       .background(Color.green)
-                       .foregroundColor(.white)
-                       .cornerRadius(8)
-                       .font(.caption)
-                       
-                       Button("Test Seeds") {
-                           testBasicFoodsSeeding()
-                       }
-                       .padding(.horizontal, 8)
-                       .padding(.vertical, 10)
-                       .background(Color.blue)
-                       .foregroundColor(.white)
-                       .cornerRadius(8)
-                       .font(.caption)
                     }
                     
                     // Search Status
@@ -172,12 +174,38 @@ struct SearchLogView: View {
                   }
                   .padding()
                } else if searchResults.isEmpty && searchText.isEmpty {
-                    ImprovedRecentLogsView(
-                        recentLogs: recentLogs,
-                        selectedMealType: selectedMealType,
-                        onFoodSelected: selectFood,
-                        onRefresh: loadRecentLogs
-                    )
+                    // 🆕 UPDATED: Show different content based on mode
+                    if case .foodLogging = mode {
+                        ImprovedRecentLogsView(
+                            recentLogs: recentLogs,
+                            selectedMealType: selectedMealType,
+                            onFoodSelected: selectFood,
+                            onRefresh: loadRecentLogs
+                        )
+                    } else {
+                        // Recipe mode - show search instruction
+                        VStack(spacing: 20) {
+                            Spacer()
+                            
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 60))
+                                .foregroundColor(.secondary)
+                            
+                            Text("Search for Ingredients")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                            
+                            Text("Search by name or scan a barcode to find ingredients for your recipe")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            
+                            Spacer()
+                        }
+                        .padding()
+                    }
                 } else if searchResults.isEmpty && !isLoading {
                     VStack(spacing: 20) {
                         Spacer()
@@ -195,20 +223,6 @@ struct SearchLogView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
-                        
-                        Button(action: {
-                            // TODO: Navigate to manual entry
-                        }) {
-                            HStack {
-                                Image(systemName: "plus.circle.fill")
-                                Text("Add '\(searchText)' manually")
-                            }
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(12)
-                        }
                         
                         Spacer()
                     }
@@ -228,13 +242,18 @@ struct SearchLogView: View {
                     .listStyle(PlainListStyle())
                 }
             }
-            .navigationTitle("Search & Log")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            // 🆕 UPDATED: Add cancel button for recipe mode
+            .navigationBarItems(
+                leading: recipeModeCancelButton,
+                trailing: EmptyView()
+            )
             .onAppear {
                 setupInitialState()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // FIXED: Add keyboard toolbar to properly dismiss keyboard
+            // Add keyboard toolbar to properly dismiss keyboard
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -245,45 +264,48 @@ struct SearchLogView: View {
             }
         }
         .sheet(isPresented: $showingBarcodeScanner, onDismiss: {
-            // FIXED: Proper sheet dismissal handling
             print("📱 Scanner sheet dismissed")
-            // FIXED: Reset keyboard and navigation state
             isSearchFocused = false
-            // Check if we should show quantity entry after scanner dismisses
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 if let _ = selectedFood {
-                    print("📱 📱 SEARCHLOGVIEW: Scanner dismissed, showing quantity entry")
-                    showingQuantitySheet = true
+                    print("📱 📱 SEARCHLOGVIEW: Scanner dismissed, handling food selection")
+                    handleFoodSelection()
                 }
             }
         }) {
             BarcodeScannerView { barcode in
                 print("📱 🎉 SEARCHLOGVIEW: Barcode callback received: \(barcode)")
                 
-                // FIXED: Ensure barcode processing happens with proper state management
                 Task { @MainActor in
                     print("📱 🚀 SEARCHLOGVIEW: Starting barcode lookup...")
                     self.searchByBarcode(barcode)
                 }
             }
         }
+        // 🆕 UPDATED: Different sheet behavior based on mode
         .sheet(isPresented: $showingQuantitySheet, onDismiss: {
-            // FIXED: Reset state after quantity sheet dismissal
             selectedFood = nil
             isSearchFocused = false
         }) {
             if let food = selectedFood {
-                QuantityEntryView(
-                    food: food,
-                    mealType: selectedMealType
-                ) { quantity, unit in
-                    addFoodToMeal(food: food, quantity: quantity, unit: unit)
+                if case .foodLogging = mode {
+                    // Regular quantity entry for meal logging
+                    QuantityEntryView(
+                        food: food,
+                        mealType: selectedMealType
+                    ) { quantity, unit in
+                        addFoodToMeal(food: food, quantity: quantity, unit: unit)
+                    }
+                } else {
+                    // Recipe quantity entry
+                    RecipeQuantityEntryView(food: food) { quantity in
+                        handleRecipeIngredientSelection(food: food, quantity: quantity)
+                    }
                 }
             }
         }
         .alert("Food Added!", isPresented: $showingSuccessAlert) {
             Button("OK") {
-                // FIXED: Reset focus state when alert dismisses
                 isSearchFocused = false
             }
         } message: {
@@ -298,13 +320,41 @@ struct SearchLogView: View {
         } message: {
             Text(errorMessage)
         }
-        // FIXED: Add onDisappear to clean up state
         .onDisappear {
             isSearchFocused = false
         }
     }
     
-    // MARK: - Updated Methods with Better State Management
+    // MARK: - 🆕 NEW: Computed Properties for Mode-Specific UI
+    
+    private var searchPlaceholder: String {
+        switch mode {
+        case .foodLogging:
+            return "Search foods..."
+        case .recipeIngredient:
+            return "Search ingredients..."
+        }
+    }
+    
+    private var navigationTitle: String {
+        switch mode {
+        case .foodLogging:
+            return "Search & Log"
+        case .recipeIngredient:
+            return "Add Ingredient"
+        }
+    }
+    
+    @ViewBuilder
+    private var recipeModeCancelButton: some View {
+        if case .recipeIngredient = mode {
+            Button("Cancel") {
+                // This will be handled by the parent view
+            }
+        }
+    }
+    
+    // MARK: - Updated Methods with Mode Support
     
     private func setupInitialState() {
         print("🔍 SearchLogView: Setting up initial state")
@@ -312,7 +362,6 @@ struct SearchLogView: View {
             selectedMealType = preselected
         }
         
-        // FIXED: Use Task for state updates to prevent modification during view update
         Task { @MainActor in
             searchResults = []
             selectedFood = nil
@@ -324,122 +373,9 @@ struct SearchLogView: View {
             isSearchFocused = false
         }
         
-        loadRecentLogs()
-    }
-    
-   private func performSearch() {
-       guard !searchText.isEmpty else {
-           clearSearch()
-           return
-       }
-       
-       Swift.print("\n🔍 ==> STARTING SEARCH FOR: '\(searchText)'")
-       
-       // FIXED: Use Task for state updates
-       Task { @MainActor in
-           self.isLoading = true
-           self.isSearchingAPI = true
-           self.debugInfo = "🔍 Smart searching for '\(searchText)'..."
-           self.searchResults = []
-       }
-       
-       Task {
-           Swift.print("🧠 Using SmartSearchManager with OpenFoodFacts...")
-           let smartResults = await SmartSearchManager.shared.searchFood(searchText)
-           Swift.print("🎯 SmartSearchManager returned \(smartResults.count) results:")
-           
-           for (index, food) in smartResults.prefix(10).enumerated() {
-               Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
-           }
-           
-           // Apply unit normalization
-           let normalizedResults = smartResults.map { UnitNormalizer.shared.normalizeFood($0) }
-           Swift.print("\n✨ After normalization: \(normalizedResults.count) results")
-           
-           for (index, food) in normalizedResults.prefix(5).enumerated() {
-               Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
-           }
-           
-           // Count results by source for debug info
-           let basicCount = normalizedResults.filter { $0.source == "BasicFoods" }.count
-           let openFoodFactsCount = normalizedResults.filter { $0.source == "OpenFoodFacts" }.count
-           let customCount = normalizedResults.filter { $0.source == "manual" }.count
-           
-           Task { @MainActor in
-               self.searchResults = normalizedResults
-               self.isLoading = false
-               self.isSearchingAPI = false
-               self.debugInfo = "✅ Found \(normalizedResults.count) results (\(basicCount) basic, \(openFoodFactsCount) OpenFoodFacts, \(customCount) custom)"
-           }
-       }
-   }
-   
-   private func testOpenFoodFactsAPI() {
-       print("🧪 Testing OpenFoodFacts API...")
-       
-       Task {
-           do {
-               // Test text search
-               let results = try await APIManager.shared.searchByText("apple")
-               print("🧪 OpenFoodFacts text search returned \(results.count) results for 'apple':")
-               
-               for (index, food) in results.prefix(5).enumerated() {
-                   print("  \(index + 1). '\(food.name)' - \(Int(food.nutritionInfo.calories ?? 0)) cal/\(food.servingSize)\(food.servingSizeUnit)")
-               }
-               
-               // Test barcode search
-               let barcodeResult = try await APIManager.shared.searchByBarcode("3017620422003")
-               if let food = barcodeResult {
-                   print("🧪 OpenFoodFacts barcode search found: '\(food.name)' - \(Int(food.nutritionInfo.calories ?? 0)) cal")
-               }
-               
-               Task { @MainActor in
-                   self.debugInfo = "🧪 OpenFoodFacts test: Found \(results.count) apple products via text search"
-               }
-               
-           } catch {
-               print("❌ OpenFoodFacts test error: \(error)")
-               Task { @MainActor in
-                   self.debugInfo = "❌ OpenFoodFacts test failed: \(error.localizedDescription)"
-               }
-           }
-       }
-   }
-   
-   private func testBasicFoodsSeeding() {
-       print("🧪 Testing basic foods seeding...")
-       
-       Task {
-           // Test that basic foods are in the database
-           DatabaseManager.shared.searchFoodsThreadSafe(query: "", limit: 100) { foods in
-               let basicFoods = foods.filter { $0.source == "BasicFoods" }
-               let openFoodFacts = foods.filter { $0.source == "OpenFoodFacts" }
-               let customFoods = foods.filter { $0.source == "manual" }
-               
-               print("🧪 Database contents:")
-               print("  Basic foods: \(basicFoods.count)")
-               print("  OpenFoodFacts: \(openFoodFacts.count)")
-               print("  Custom foods: \(customFoods.count)")
-               
-               // Test specific basic foods
-               let testFoods = ["Apple", "Chicken Breast", "White Rice", "Egg"]
-               for testFood in testFoods {
-                   let found = basicFoods.contains { $0.name == testFood }
-                   print("  \(testFood): \(found ? "✅ Found" : "❌ Missing")")
-               }
-               
-               Task { @MainActor in
-                   self.debugInfo = "🧪 Database has \(basicFoods.count) basic foods, \(openFoodFacts.count) OpenFoodFacts, \(customFoods.count) custom"
-               }
-           }
-       }
-   }
-    
-    private func clearSearch() {
-        Task { @MainActor in
-            self.searchText = ""
-            self.searchResults = []
-            self.isSearchFocused = false
+        // Only load recent logs for food logging mode
+        if case .foodLogging = mode {
+            loadRecentLogs()
         }
     }
     
@@ -447,7 +383,84 @@ struct SearchLogView: View {
         Task { @MainActor in
             self.selectedFood = food
             self.isSearchFocused = false // Dismiss keyboard
-            self.showingQuantitySheet = true
+            
+            // 🆕 UPDATED: Handle selection based on mode
+            switch mode {
+            case .foodLogging:
+                self.showingQuantitySheet = true
+            case .recipeIngredient:
+                self.showingQuantitySheet = true
+            }
+        }
+    }
+    
+    // 🆕 NEW: Handle food selection after barcode scan
+    private func handleFoodSelection() {
+        switch mode {
+        case .foodLogging:
+            showingQuantitySheet = true
+        case .recipeIngredient:
+            showingQuantitySheet = true
+        }
+    }
+    
+    // 🆕 NEW: Handle recipe ingredient selection
+    private func handleRecipeIngredientSelection(food: Food, quantity: Double) {
+        print("✅ Recipe ingredient selected: \(food.name) - \(quantity) \(food.servingSizeUnit)")
+        onFoodSelected?(food)  // This will be handled by RecipeCreationView
+    }
+    
+    private func performSearch() {
+        guard !searchText.isEmpty else {
+            clearSearch()
+            return
+        }
+        
+        Swift.print("\n🔍 ==> STARTING SEARCH FOR: '\(searchText)'")
+        
+        Task { @MainActor in
+            self.isLoading = true
+            self.isSearchingAPI = true
+            self.debugInfo = "🔍 Smart searching for '\(searchText)'..."
+            self.searchResults = []
+        }
+        
+        Task {
+            Swift.print("🧠 Using SmartSearchManager with OpenFoodFacts...")
+            let smartResults = await SmartSearchManager.shared.searchFood(searchText)
+            Swift.print("🎯 SmartSearchManager returned \(smartResults.count) results:")
+            
+            for (index, food) in smartResults.prefix(10).enumerated() {
+                Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
+            }
+            
+            // Apply unit normalization
+            let normalizedResults = smartResults.map { UnitNormalizer.shared.normalizeFood($0) }
+            Swift.print("\n✨ After normalization: \(normalizedResults.count) results")
+            
+            for (index, food) in normalizedResults.prefix(5).enumerated() {
+                Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
+            }
+            
+            // Count results by source for debug info
+            let basicCount = normalizedResults.filter { $0.source == "BasicFoods" }.count
+            let openFoodFactsCount = normalizedResults.filter { $0.source == "OpenFoodFacts" }.count
+            let customCount = normalizedResults.filter { $0.source == "manual" }.count
+            
+            Task { @MainActor in
+                self.searchResults = normalizedResults
+                self.isLoading = false
+                self.isSearchingAPI = false
+                self.debugInfo = "✅ Found \(normalizedResults.count) results (\(basicCount) basic, \(openFoodFactsCount) OpenFoodFacts, \(customCount) custom)"
+            }
+        }
+    }
+    
+    private func clearSearch() {
+        Task { @MainActor in
+            self.searchText = ""
+            self.searchResults = []
+            self.isSearchFocused = false
         }
     }
     
@@ -485,7 +498,6 @@ struct SearchLogView: View {
         }
     }
     
-    // FIXED: Update loadRecentLogs method with thread-safe database access
     private func loadRecentLogs() {
         Swift.print("🔍 Loading recent food logs...")
         
@@ -544,80 +556,10 @@ struct SearchLogView: View {
             }
         }
     }
-    
-    // FIXED: Enhanced relevance scoring for better search results
-    private func calculateRelevanceScore(food: Food, query: String) -> Int {
-        let queryLower = query.lowercased()
-        let nameLower = food.name.lowercased()
-        let brandLower = food.brand?.lowercased() ?? ""
-        
-        var score = 0
-        
-        // HEAVILY prioritize exact matches
-        if nameLower == queryLower { score += 1000 }
-        
-        // Prioritize simple foods (fewer words = more basic)
-        let wordCount = nameLower.components(separatedBy: .whitespacesAndNewlines).count
-        if wordCount <= 2 { score += 300 }
-        else if wordCount <= 3 { score += 100 }
-        else if wordCount > 5 { score -= 200 }
-        else if wordCount > 8 { score -= 500 }
-        
-        // Boost USDA basic foods over branded
-        if food.source == "USDA" { score += 200 }
-        if food.source == "manual" { score += 150 }
-        if food.source == "OpenFoodFacts" { score += 50 }
-        
-        // Prioritize foods that start with the query
-        if nameLower.hasPrefix(queryLower) { score += 500 }
-        
-        // Penalize overly branded/processed foods
-        if brandLower.contains("inc") || brandLower.contains("llc") || brandLower.contains("company") || brandLower.contains("corp") {
-            score -= 300
-        }
-        
-        // Penalize foods with weird brand names in the food name itself
-        let commercialWords = ["frozen", "organic", "natural", "premium", "gourmet", "artisan", "deluxe"]
-        for word in commercialWords {
-            if nameLower.contains(word) && !queryLower.contains(word) {
-                score -= 50
-            }
-        }
-        
-        // Boost for reasonable calorie ranges (avoid weird outliers)
-        let calories = food.nutritionInfo.calories ?? 0
-        if calories > 0 && calories < 1000 { score += 50 }
-        if calories > 1000 { score -= 100 }
-        if calories == 0 { score -= 200 } // Penalize zero-calorie oddities
-        
-        // Boost basic food patterns
-        let basicFoodPatterns = ["egg", "milk", "sugar", "flour", "butter", "salt", "rice", "chicken", "beef", "apple", "banana", "bread", "cheese"]
-        for pattern in basicFoodPatterns {
-            if queryLower.contains(pattern) && nameLower.contains(pattern) {
-                // Check if this is a simple version of the food
-                if nameLower == pattern || nameLower == "\(pattern)s" || nameLower.hasPrefix("\(pattern),") {
-                    score += 400
-                }
-                // Penalize complex versions when looking for basic foods
-                else if wordCount > 4 {
-                    score -= 100
-                }
-            }
-        }
-        
-        // Penalize foods with numbers in weird places (often processed foods)
-        if nameLower.contains(#"\d+"#) && !queryLower.contains(#"\d+"#) {
-            score -= 100
-        }
-        
-        // Basic containment (lowest priority)
-        if nameLower.contains(queryLower) { score += 25 }
-        
-        return score
-    }
 }
 
-// MARK: - Rest of SearchLogView components (keep your existing ones)
+
+// MARK: - Rest of the SearchLogView components (unchanged)
 
 struct ImprovedRecentLogsView: View {
     let recentLogs: [FoodEntry]

@@ -23,8 +23,12 @@ class SmartSearchManager {
         print("🔍 Only \(localResults.count) local results, searching OpenFoodFacts...")
         let apiResults = await searchOpenFoodFacts(trimmedQuery)
         
+        // 🆕 UPDATED: Filter API results for duplicates against local results
+        let filteredAPIResults = filterAPIResultsForDuplicates(apiResults, against: localResults)
+        print("🔍 After duplicate filtering: \(filteredAPIResults.count) API results")
+        
         // Combine results, prioritizing local ones
-        let combinedResults = (localResults + apiResults).removingDuplicates()
+        let combinedResults = (localResults + filteredAPIResults).removingDuplicates()
         
         if combinedResults.count >= 8 {
             print("✅ Found \(combinedResults.count) combined results")
@@ -35,7 +39,8 @@ class SmartSearchManager {
         if combinedResults.count < 5 {
             print("🔍 Still only \(combinedResults.count) results, trying broader search...")
             let broaderResults = await searchOpenFoodFactsBroader(trimmedQuery)
-            let finalResults = (combinedResults + broaderResults).removingDuplicates()
+            let filteredBroaderResults = filterAPIResultsForDuplicates(broaderResults, against: combinedResults)
+            let finalResults = (combinedResults + filteredBroaderResults).removingDuplicates()
             return Array(finalResults.prefix(15))
         }
         
@@ -67,8 +72,8 @@ class SmartSearchManager {
            }
        }
        
-       // Remove duplicates BEFORE sorting
-       let uniqueFiltered = filtered.removingDuplicates()
+       // 🆕 UPDATED: Remove duplicates BEFORE sorting using enhanced deduplication
+       let uniqueFiltered = removeLocalDuplicates(filtered)
        
        return uniqueFiltered.sorted { food1, food2 in
            let score1 = calculateLocalScore(food1, query: query)
@@ -76,6 +81,92 @@ class SmartSearchManager {
            return score1 > score2
        }
    }
+    
+    // 🆕 NEW: Enhanced local duplicate removal
+    private func removeLocalDuplicates(_ foods: [Food]) -> [Food] {
+        var uniqueFoods: [Food] = []
+        
+        for food in foods {
+            let isDuplicate = uniqueFoods.contains { existingFood in
+                areFoodsDuplicatesForSearch(food, existingFood)
+            }
+            
+            if !isDuplicate {
+                uniqueFoods.append(food)
+            } else {
+                // If it's a duplicate, check if the new food has higher priority
+                if let existingIndex = uniqueFoods.firstIndex(where: { areFoodsDuplicatesForSearch(food, $0) }) {
+                    let existingFood = uniqueFoods[existingIndex]
+                    if getSourcePriority(food.source) > getSourcePriority(existingFood.source) {
+                        // Replace with higher priority food
+                        uniqueFoods[existingIndex] = food
+                        print("🔄 Replaced '\(existingFood.name)' (\(existingFood.source)) with '\(food.name)' (\(food.source))")
+                    }
+                }
+            }
+        }
+        
+        return uniqueFoods
+    }
+    
+    // 🆕 NEW: Check if two foods are duplicates for search purposes
+    private func areFoodsDuplicatesForSearch(_ food1: Food, _ food2: Food) -> Bool {
+        // Clean names for comparison
+        let name1 = cleanNameForComparison(food1.name)
+        let name2 = cleanNameForComparison(food2.name)
+        
+        // Names must be very similar
+        let namesMatch = name1 == name2 ||
+                        (name1.contains(name2) && name1.count - name2.count <= 2) ||
+                        (name2.contains(name1) && name2.count - name1.count <= 2)
+        
+        if !namesMatch { return false }
+        
+        // Units should be in the same category for basic duplicates
+        let unit1 = MeasurementUnit(rawValue: food1.servingSizeUnit) ?? .grams
+        let unit2 = MeasurementUnit(rawValue: food2.servingSizeUnit) ?? .grams
+        
+        if unit1.category != unit2.category { return false }
+        
+        // Serving size should be reasonably similar (within 50% difference)
+        let sizeDifference = abs(food1.servingSize - food2.servingSize) / max(food1.servingSize, food2.servingSize)
+        if sizeDifference > 0.5 { return false }
+        
+        return true
+    }
+    
+    // 🆕 NEW: Clean food name for comparison
+    private func cleanNameForComparison(_ name: String) -> String {
+        var cleaned = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common variations that don't matter for duplicates
+        let removeWords = ["raw", "cooked", "fresh", "frozen", "organic", "natural", "the", "a", "an"]
+        for word in removeWords {
+            cleaned = cleaned.replacingOccurrences(of: "\\b\(word)\\b", with: "", options: .regularExpression)
+        }
+        
+        // Handle plurals
+        if cleaned.hasSuffix("s") && cleaned.count > 3 {
+            let singular = String(cleaned.dropLast())
+            cleaned = singular
+        }
+        
+        // Remove extra spaces
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    // 🆕 NEW: Get source priority for duplicate resolution
+    private func getSourcePriority(_ source: String) -> Int {
+        switch source {
+        case "BasicFoods": return 100  // Highest priority - our curated basic foods
+        case "USDA": return 80  // High priority - official government data
+        case "OpenFoodFacts": return 50  // Medium priority - good API data
+        case "manual": return 30  // Lower priority - user-created foods
+        default: return 10  // Lowest priority - unknown sources
+        }
+    }
     
     private func isStrictLocalMatch(foodWords: [String], queryWords: [String]) -> Bool {
         // For single word queries, prefer basic foods
@@ -149,11 +240,8 @@ class SmartSearchManager {
         // Huge bonus for exact matches
         if nameLower == queryLower { score += 2000 }
         
-        // Big bonus for basic foods
-        if food.source == "BasicFoods" { score += 1000 }
-        
-        // Bonus for custom foods
-        if food.source == "manual" { score += 500 }
+        // 🆕 UPDATED: Use source priority system
+        score += getSourcePriority(food.source)
         
         // Bonus for simple names
         let wordCount = nameLower.components(separatedBy: " ").count
@@ -188,9 +276,13 @@ class SmartSearchManager {
            // Validate nutrition data to prevent NaN errors
            let validatedFoods = filteredFoods.map { validateNutritionData($0) }
            
-           // Save good results to database for future use
+           // 🆕 UPDATED: Save good results using duplicate-aware save method
            for food in validatedFoods.prefix(5) {
-               DatabaseManager.shared.saveFoodThreadSafe(food) { _ in }
+               DatabaseManager.shared.saveFoodThreadSafe(food) { success in
+                   if success {
+                       print("💾 Saved API food: \(food.name)")
+                   }
+               }
            }
            
            return validatedFoods
@@ -199,6 +291,16 @@ class SmartSearchManager {
            return []
        }
    }
+    
+    // 🆕 NEW: Filter API results for duplicates against existing results
+    private func filterAPIResultsForDuplicates(_ apiResults: [Food], against existingResults: [Food]) -> [Food] {
+        return apiResults.filter { apiFood in
+            // Check if this API result duplicates any existing result
+            return !existingResults.contains { existingFood in
+                areFoodsDuplicatesForSearch(apiFood, existingFood)
+            }
+        }
+    }
     
     private func searchOpenFoodFactsBroader(_ query: String) async -> [Food] {
         // Try variations of the query
@@ -365,19 +467,47 @@ class SmartSearchManager {
    }
 }
 
-// MARK: - Helper Extension
+// MARK: - 🆕 UPDATED Helper Extension with Enhanced Deduplication
 extension Array where Element == Food {
     func removingDuplicates() -> [Food] {
         var seen = Set<String>()
-        return filter { food in
+        var uniqueFoods: [Food] = []
+        
+        for food in self {
             // Create a more specific key that includes source to avoid removing different source foods
-            let key = "\(food.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))-\(food.servingSize)-\(food.servingSizeUnit.lowercased())-\(food.source)"
-            if seen.contains(key) {
-                return false
-            } else {
+            let key = "\(food.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))-\(food.servingSize)-\(food.servingSizeUnit.lowercased())"
+            
+            if !seen.contains(key) {
                 seen.insert(key)
-                return true
+                uniqueFoods.append(food)
+            } else {
+                // If duplicate found, check if this one has higher priority
+                if let existingIndex = uniqueFoods.firstIndex(where: { existingFood in
+                    let existingKey = "\(existingFood.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))-\(existingFood.servingSize)-\(existingFood.servingSizeUnit.lowercased())"
+                    return existingKey == key
+                }) {
+                    let existingFood = uniqueFoods[existingIndex]
+                    let newPriority = getSourcePriorityForExtension(food.source)
+                    let existingPriority = getSourcePriorityForExtension(existingFood.source)
+                    
+                    if newPriority > existingPriority {
+                        // Replace with higher priority food
+                        uniqueFoods[existingIndex] = food
+                    }
+                }
             }
+        }
+        
+        return uniqueFoods
+    }
+    
+    private func getSourcePriorityForExtension(_ source: String) -> Int {
+        switch source {
+        case "BasicFoods": return 100
+        case "USDA": return 80
+        case "OpenFoodFacts": return 50
+        case "manual": return 30
+        default: return 10
         }
     }
 }

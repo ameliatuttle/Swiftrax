@@ -4,6 +4,12 @@ struct SettingsView: View {
     @State private var userSettings = User()
     @State private var showingClearDataAlert = false
     @State private var showingExportAlert = false
+    @State private var showingCleanupAlert = false
+    @State private var showingCleanupResult = false
+    @State private var cleanupResultMessage = ""
+    @State private var isCleaningUp = false
+    @State private var duplicateCount = 0
+    @State private var basicFoodsCount = 0
     @AppStorage("app_theme") private var selectedTheme: String = AppTheme.system.rawValue
     
     // FIXED: Add screen size properties
@@ -67,6 +73,61 @@ struct SettingsView: View {
                     }
                 }
                 
+                // 🆕 NEW: Database Management Section
+                Section("Database Management") {
+                    // Database Status
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Basic Foods")
+                            Spacer()
+                            Text("\(basicFoodsCount)")
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack {
+                            Text("Potential Duplicates")
+                            Spacer()
+                            Text("\(duplicateCount)")
+                                .foregroundColor(duplicateCount > 0 ? .orange : .secondary)
+                        }
+                        
+                        if duplicateCount > 0 {
+                            Text("Duplicates can cause search results to show multiple similar foods")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    // Cleanup Duplicates Button
+                    Button(action: {
+                        showingCleanupAlert = true
+                    }) {
+                        HStack {
+                            if isCleaningUp {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Cleaning Up...")
+                            } else {
+                                Image(systemName: "sparkles")
+                                Text("Clean Up Duplicates")
+                            }
+                        }
+                        .foregroundColor(duplicateCount > 0 ? .blue : .secondary)
+                    }
+                    .disabled(isCleaningUp || duplicateCount == 0)
+                    
+                    // Reseed Basic Foods Button
+                    Button(action: {
+                        reseedBasicFoods()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Reseed Basic Foods")
+                        }
+                    }
+                    .foregroundColor(.green)
+                }
+                
                 // Data Management
                 Section("Data") {
                     Button("Export Data") {
@@ -107,6 +168,8 @@ struct SettingsView: View {
             .onAppear {
                 print("⚙️ Settings: View appeared")
                 loadSettings()
+                loadDatabaseStatus()
+                
                 // FIXED: Only sync theme if it's different to prevent unnecessary updates
                 if selectedTheme != userSettings.theme.rawValue {
                     selectedTheme = userSettings.theme.rawValue
@@ -141,6 +204,21 @@ struct SettingsView: View {
             .onChange(of: userSettings.trackingPreferences.trackSaturatedFat) { _ in
                 Task { await saveSettingsAsync() }
             }
+            .alert("Clean Up Duplicates", isPresented: $showingCleanupAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Clean Up") {
+                    cleanupDuplicates()
+                }
+            } message: {
+                Text("This will remove \(duplicateCount) duplicate food entries, keeping the highest quality version of each. This action cannot be undone.")
+            }
+            .alert("Cleanup Complete", isPresented: $showingCleanupResult) {
+                Button("OK") {
+                    loadDatabaseStatus() // Refresh the status
+                }
+            } message: {
+                Text(cleanupResultMessage)
+            }
             .alert("Clear All Data", isPresented: $showingClearDataAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
@@ -158,6 +236,47 @@ struct SettingsView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
+    
+    // MARK: - 🆕 NEW: Database Management Methods
+    
+    private func loadDatabaseStatus() {
+        BasicFoodsSeeder.shared.checkBasicFoodsStatus { basicCount, duplicateGroups, totalDuplicates in
+            Task { @MainActor in
+                self.basicFoodsCount = basicCount
+                self.duplicateCount = totalDuplicates
+                
+                print("📊 Database Status: \(basicCount) basic foods, \(totalDuplicates) duplicates in \(duplicateGroups) groups")
+            }
+        }
+    }
+    
+    private func cleanupDuplicates() {
+        guard duplicateCount > 0 else { return }
+        
+        isCleaningUp = true
+        
+        DatabaseManager.shared.cleanupDuplicatesAsync { cleanedCount in
+            Task { @MainActor in
+                self.isCleaningUp = false
+                self.cleanupResultMessage = "Successfully removed \(cleanedCount) duplicate food entries. Your database is now optimized!"
+                self.showingCleanupResult = true
+                
+                print("🧹 Cleanup completed: \(cleanedCount) duplicates removed")
+            }
+        }
+    }
+    
+    private func reseedBasicFoods() {
+        print("🌱 Manual reseed of basic foods triggered")
+        BasicFoodsSeeder.shared.forceReseed()
+        
+        // Refresh status after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            loadDatabaseStatus()
+        }
+    }
+    
+    // MARK: - Existing Methods
     
     private func loadSettings() {
         userSettings = DatabaseManager.shared.getUserSettings()
@@ -189,8 +308,22 @@ struct SettingsView: View {
         userSettings = User()
         Task { await saveSettingsAsync() }
         
+        // Reset database status
+        basicFoodsCount = 0
+        duplicateCount = 0
+        
         // Post notification to refresh all views
         NotificationCenter.default.post(name: NSNotification.Name("DataCleared"), object: nil)
+        
+        // Trigger basic foods seeding after clearing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            BasicFoodsSeeder.shared.seedBasicFoodsIfNeeded()
+            
+            // Refresh status after seeding
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                loadDatabaseStatus()
+            }
+        }
     }
 }
 

@@ -8,7 +8,7 @@ class BasicFoodsSeeder {
     private let userDefaults = UserDefaults.standard
     private let hasSeededKey = "hasSeededBasicFoods"
     private let seedVersionKey = "basicFoodsSeedVersion"
-    private let currentSeedVersion = 1
+    private let currentSeedVersion = 2  // 🆕 INCREASED VERSION to trigger re-seeding with deduplication
     
     // MARK: - Public Methods
     
@@ -18,11 +18,11 @@ class BasicFoodsSeeder {
         let currentVersion = userDefaults.integer(forKey: seedVersionKey)
         
         if !hasSeeded || currentVersion < currentSeedVersion {
-            print("🌱 Seeding basic foods (version \(currentSeedVersion))...")
+            print("🌱 Seeding basic foods (version \(currentSeedVersion)) with duplicate prevention...")
             
-            // FIXED: Run seeding on background thread to avoid blocking UI
+            // Run seeding on background thread to avoid blocking UI
             DispatchQueue.global(qos: .background).async {
-                self.seedBasicFoods()
+                self.seedBasicFoodsWithDeduplication()
                 
                 // Update user defaults on main thread
                 DispatchQueue.main.async {
@@ -40,55 +40,112 @@ class BasicFoodsSeeder {
     func forceReseed() {
         userDefaults.set(false, forKey: hasSeededKey)
         userDefaults.set(0, forKey: seedVersionKey)
-        seedBasicFoodsIfNeeded()
+        
+        // 🆕 Also clean up duplicates before reseeding
+        DatabaseManager.shared.cleanupDuplicatesAsync { cleanedCount in
+            print("🧹 Cleaned up \(cleanedCount) duplicates before reseeding")
+            self.seedBasicFoodsIfNeeded()
+        }
     }
     
-    // MARK: - Private Methods
+    // MARK: - 🆕 UPDATED Private Methods with Duplicate Prevention
     
-    private func seedBasicFoods() {
+    private func seedBasicFoodsWithDeduplication() {
         let basicFoods = createBasicFoodsData()
         
-        // FIXED: Use a dispatch group to handle async operations properly
+        print("🌱 Starting to seed \(basicFoods.count) basic foods with duplicate prevention...")
+        
+        // Use a dispatch group to handle async operations properly
         let dispatchGroup = DispatchGroup()
+        var successCount = 0
+        var skippedCount = 0
+        var errorCount = 0
         
         for food in basicFoods {
             dispatchGroup.enter()
             
-            // FIXED: Check and save asynchronously without blocking
-            checkAndSaveFood(food) {
+            // Use the new duplicate-aware save method
+            DatabaseManager.shared.saveFoodThreadSafe(food) { success in
+                if success {
+                    successCount += 1
+                    print("🌱 ✅ Seeded: \(food.name)")
+                } else {
+                    errorCount += 1
+                    print("🌱 ❌ Failed to seed: \(food.name)")
+                }
                 dispatchGroup.leave()
             }
         }
         
         // Wait for all foods to be processed
         dispatchGroup.wait()
-        print("✅ Basic foods seeded successfully")
+        
+        print("✅ Basic foods seeding completed!")
+        print("   - Successfully seeded: \(successCount)")
+        print("   - Skipped (duplicates): \(skippedCount)")
+        print("   - Errors: \(errorCount)")
     }
     
-    // FIXED: Async method that doesn't block the main thread
-    private func checkAndSaveFood(_ food: Food, completion: @escaping () -> Void) {
-        // Check if food exists by searching database
+    /// 🆕 NEW: Check if a similar food already exists (more sophisticated than before)
+    private func checkForExistingFood(_ food: Food, completion: @escaping (Bool) -> Void) {
         DatabaseManager.shared.searchFoodsThreadSafe(query: food.name, limit: 10) { foods in
             let exists = foods.contains { existingFood in
-                existingFood.name.lowercased() == food.name.lowercased() &&
-                existingFood.source == "BasicFoods"
+                self.areFoodsSimilarForSeeding(food, existingFood)
             }
-            
-            if !exists {
-                // Save the food
-                DatabaseManager.shared.saveFoodThreadSafe(food) { success in
-                    if success {
-                        print("🌱 Seeded: \(food.name)")
-                    } else {
-                        print("❌ Failed to seed: \(food.name)")
-                    }
-                    completion()
-                }
-            } else {
-                print("🌱 Already exists: \(food.name)")
-                completion()
+            completion(exists)
+        }
+    }
+    
+    /// 🆕 NEW: More sophisticated similarity check for seeding
+    private func areFoodsSimilarForSeeding(_ food1: Food, _ food2: Food) -> Bool {
+        // Clean names for comparison
+        let name1 = cleanNameForComparison(food1.name)
+        let name2 = cleanNameForComparison(food2.name)
+        
+        // Names must be very similar
+        let namesMatch = name1 == name2 ||
+                        (name1.contains(name2) && name1.count - name2.count <= 2) ||
+                        (name2.contains(name1) && name2.count - name1.count <= 2)
+        
+        if !namesMatch { return false }
+        
+        // Units should be in the same category
+        let unit1 = MeasurementUnit(rawValue: food1.servingSizeUnit) ?? .grams
+        let unit2 = MeasurementUnit(rawValue: food2.servingSizeUnit) ?? .grams
+        
+        if unit1.category != unit2.category { return false }
+        
+        // Both must be basic foods or one must be BasicFoods source
+        let bothBasic = (food1.source == "BasicFoods" || food1.source == "manual") &&
+                       (food2.source == "BasicFoods" || food2.source == "manual")
+        
+        return bothBasic
+    }
+    
+    /// 🆕 NEW: Clean food name for better comparison
+    private func cleanNameForComparison(_ name: String) -> String {
+        var cleaned = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common articles and descriptors that don't matter for basic foods
+        let removeWords = ["the", "a", "an", "fresh", "raw", "cooked", "organic", "natural"]
+        for word in removeWords {
+            cleaned = cleaned.replacingOccurrences(of: "\\b\(word)\\b", with: "", options: .regularExpression)
+        }
+        
+        // Handle common plural/singular variations
+        if cleaned.hasSuffix("s") && cleaned.count > 3 {
+            let singular = String(cleaned.dropLast())
+            // Only use singular if it's a common food word
+            let commonFoods = ["egg", "apple", "banana", "grape", "carrot", "almond", "walnut"]
+            if commonFoods.contains(singular) {
+                cleaned = singular
             }
         }
+        
+        // Remove extra spaces
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func createBasicFoodsData() -> [Food] {
@@ -186,12 +243,70 @@ class BasicFoodsSeeder {
             servingSizeUnit: unit,
             brand: nil,
             isCustom: false,
-            source: "BasicFoods"
+            source: "BasicFoods"  // 🆕 IMPORTANT: Set source to BasicFoods for highest priority
         )
         
         // Set creation date to a past date so they don't show up as "recent"
         food.dateAdded = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
         
         return food
+    }
+}
+
+// MARK: - 🆕 NEW: Public Interface for Duplicate Management
+
+extension BasicFoodsSeeder {
+    
+    /// Clean up duplicate basic foods and reseed if needed
+    func cleanupAndReseed() {
+        print("🧹 Starting comprehensive cleanup and reseed...")
+        
+        DatabaseManager.shared.cleanupDuplicatesAsync { cleanedCount in
+            print("🧹 Cleaned up \(cleanedCount) duplicates")
+            
+            // Force a reseed to ensure we have all basic foods
+            self.forceReseed()
+        }
+    }
+    
+    /// Check the status of basic foods in the database
+    func checkBasicFoodsStatus(completion: @escaping (Int, Int, Int) -> Void) {
+        DatabaseManager.shared.searchFoodsThreadSafe(query: "", limit: 1000) { allFoods in
+            let basicFoods = allFoods.filter { $0.source == "BasicFoods" }
+            let duplicateGroups = self.findDuplicateGroups(in: basicFoods)
+            let totalDuplicates = duplicateGroups.reduce(0) { total, group in
+                total + (group.count - 1) // Count all but one in each group as duplicates
+            }
+            
+            completion(basicFoods.count, duplicateGroups.count, totalDuplicates)
+        }
+    }
+    
+    /// Find groups of duplicate foods
+    private func findDuplicateGroups(in foods: [Food]) -> [[Food]] {
+        var groups: [[Food]] = []
+        var processed = Set<UUID>()
+        
+        for food in foods {
+            if processed.contains(food.id) { continue }
+            
+            var group = [food]
+            processed.insert(food.id)
+            
+            for otherFood in foods {
+                if otherFood.id != food.id &&
+                   !processed.contains(otherFood.id) &&
+                   areFoodsSimilarForSeeding(food, otherFood) {
+                    group.append(otherFood)
+                    processed.insert(otherFood.id)
+                }
+            }
+            
+            if group.count > 1 {
+                groups.append(group)
+            }
+        }
+        
+        return groups
     }
 }

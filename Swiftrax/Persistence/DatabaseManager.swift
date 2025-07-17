@@ -86,11 +86,13 @@ class DatabaseManager: ObservableObject {
             sqlite3_exec(db, query, nil, nil, nil) // Will fail silently if column already exists
         }
         
-        // Create indexes for API features
+        // Create indexes for API features and duplicate prevention
         let indexQueries = [
             "CREATE INDEX IF NOT EXISTS idx_barcode ON Foods(barcode)",
             "CREATE INDEX IF NOT EXISTS idx_source ON Foods(source)",
-            "CREATE INDEX IF NOT EXISTS idx_last_updated ON Foods(last_updated)"
+            "CREATE INDEX IF NOT EXISTS idx_last_updated ON Foods(last_updated)",
+            "CREATE INDEX IF NOT EXISTS idx_name_source ON Foods(name, source)",
+            "CREATE INDEX IF NOT EXISTS idx_name_serving ON Foods(name, serving_size, serving_size_unit)"
         ]
         
         for query in indexQueries {
@@ -251,7 +253,286 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    // MARK: - Thread-Safe Public Interface (ONLY use these methods)
+    // MARK: - 🚀 NEW DUPLICATE PREVENTION SYSTEM
+    
+    /// Defines source priority for duplicate resolution (higher number = higher priority)
+    private func getSourcePriority(_ source: String) -> Int {
+        switch source {
+        case "BasicFoods": return 100  // Highest priority - our curated basic foods
+        case "OpenFoodFacts": return 50  // Medium priority - good API data
+        case "USDA": return 80  // High priority - official government data
+        case "manual": return 30  // Lower priority - user-created foods
+        default: return 10  // Lowest priority - unknown sources
+        }
+    }
+    
+    /// Check if a food is a potential duplicate of an existing food
+    private func findPotentialDuplicatesSync(_ food: Food) -> [Food] {
+        let cleanName = cleanFoodNameForDuplicateCheck(food.name)
+        let tolerance = 0.2 // 20% tolerance for serving size differences
+        
+        let querySQL = """
+            SELECT * FROM Foods 
+            WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+               OR (LOWER(TRIM(name)) LIKE LOWER(TRIM(?)) AND serving_size_unit = ?)
+        """
+        
+        var statement: OpaquePointer?
+        var potentialDuplicates: [Food] = []
+        
+        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, cleanName, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 2, "%\(cleanName)%", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(statement, 3, food.servingSizeUnit, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let existingFood = createFoodFromRow(statement: statement!) {
+                    // Check if it's really a duplicate
+                    if areFoodsDuplicates(food, existingFood, tolerance: tolerance) {
+                        potentialDuplicates.append(existingFood)
+                    }
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return potentialDuplicates
+    }
+    
+    /// Clean food name for more accurate duplicate detection
+    private func cleanFoodNameForDuplicateCheck(_ name: String) -> String {
+        var cleaned = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove common variations that shouldn't matter for duplicates
+        let removeWords = ["raw", "cooked", "fresh", "frozen", "organic", "natural"]
+        for word in removeWords {
+            cleaned = cleaned.replacingOccurrences(of: "\\b\(word)\\b", with: "", options: .regularExpression)
+        }
+        
+        // Handle plurals
+        if cleaned.hasSuffix("s") && cleaned.count > 3 {
+            let singular = String(cleaned.dropLast())
+            cleaned = singular
+        }
+        
+        // Remove extra spaces
+        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    /// Determine if two foods are duplicates
+    private func areFoodsDuplicates(_ food1: Food, _ food2: Food, tolerance: Double) -> Bool {
+        // Same ID = not duplicate (same food)
+        if food1.id == food2.id { return false }
+        
+        // Check name similarity
+        let name1 = cleanFoodNameForDuplicateCheck(food1.name)
+        let name2 = cleanFoodNameForDuplicateCheck(food2.name)
+        
+        let namesMatch = name1 == name2 ||
+                        name1.contains(name2) ||
+                        name2.contains(name1)
+        
+        if !namesMatch { return false }
+        
+        // Check serving unit compatibility
+        let unit1 = MeasurementUnit(rawValue: food1.servingSizeUnit) ?? .grams
+        let unit2 = MeasurementUnit(rawValue: food2.servingSizeUnit) ?? .grams
+        
+        // Units must be in the same category to be considered duplicates
+        if unit1.category != unit2.category { return false }
+        
+        // Check serving size similarity (within tolerance)
+        let sizeDifference = abs(food1.servingSize - food2.servingSize) / max(food1.servingSize, food2.servingSize)
+        if sizeDifference > tolerance { return false }
+        
+        // Check barcode - if both have barcodes and they're different, not duplicates
+        if let barcode1 = food1.barcode, let barcode2 = food2.barcode {
+            if barcode1 != barcode2 { return false }
+        }
+        
+        Swift.print("🔍 Duplicate detected: '\(food1.name)' (\(food1.source)) vs '\(food2.name)' (\(food2.source))")
+        return true
+    }
+    
+    /// Save food with intelligent duplicate handling
+    private func saveFoodWithDuplicateHandlingSync(_ food: Food) -> Bool {
+        Swift.print("🔍 Checking for duplicates of: \(food.name) (\(food.source))")
+        
+        let duplicates = findPotentialDuplicatesSync(food)
+        
+        if duplicates.isEmpty {
+            // No duplicates found, save normally
+            Swift.print("✅ No duplicates found, saving: \(food.name)")
+            return saveFoodSync(food)
+        }
+        
+        Swift.print("⚠️ Found \(duplicates.count) potential duplicate(s) for: \(food.name)")
+        
+        // Find the best existing duplicate based on source priority
+        let bestDuplicate = duplicates.max { food1, food2 in
+            getSourcePriority(food1.source) < getSourcePriority(food2.source)
+        }!
+        
+        let newFoodPriority = getSourcePriority(food.source)
+        let existingFoodPriority = getSourcePriority(bestDuplicate.source)
+        
+        if newFoodPriority > existingFoodPriority {
+            // New food has higher priority, replace the existing one
+            Swift.print("🔄 Replacing existing food '\(bestDuplicate.name)' (\(bestDuplicate.source)) with '\(food.name)' (\(food.source))")
+            
+            // Update the food with the existing ID to replace it
+            var updatedFood = food
+            updatedFood.id = bestDuplicate.id  // Keep the same ID to replace
+            
+            return saveFoodSync(updatedFood)
+        } else if newFoodPriority == existingFoodPriority {
+            // Same priority, update if the new food has more complete information
+            if isFoodMoreComplete(food, thanFood: bestDuplicate) {
+                Swift.print("🔄 Updating existing food with more complete information")
+                var updatedFood = food
+                updatedFood.id = bestDuplicate.id
+                return saveFoodSync(updatedFood)
+            } else {
+                Swift.print("⏭️ Skipping duplicate food (existing is better): \(food.name)")
+                return true  // Return true as it's not an error
+            }
+        } else {
+            // Existing food has higher priority, skip the new one
+            Swift.print("⏭️ Skipping duplicate food (existing has higher priority): \(food.name)")
+            return true  // Return true as it's not an error
+        }
+    }
+    
+    /// Check if one food has more complete information than another
+    private func isFoodMoreComplete(_ food1: Food, thanFood food2: Food) -> Bool {
+        var score1 = 0
+        var score2 = 0
+        
+        // Check nutrition completeness
+        if food1.nutritionInfo.protein != nil { score1 += 1 }
+        if food1.nutritionInfo.carbohydrates != nil { score1 += 1 }
+        if food1.nutritionInfo.fat != nil { score1 += 1 }
+        if food1.nutritionInfo.fiber != nil { score1 += 1 }
+        if food1.nutritionInfo.sugar != nil { score1 += 1 }
+        if food1.nutritionInfo.sodium != nil { score1 += 1 }
+        
+        if food2.nutritionInfo.protein != nil { score2 += 1 }
+        if food2.nutritionInfo.carbohydrates != nil { score2 += 1 }
+        if food2.nutritionInfo.fat != nil { score2 += 1 }
+        if food2.nutritionInfo.fiber != nil { score2 += 1 }
+        if food2.nutritionInfo.sugar != nil { score2 += 1 }
+        if food2.nutritionInfo.sodium != nil { score2 += 1 }
+        
+        // Check other attributes
+        if food1.brand != nil { score1 += 1 }
+        if food1.barcode != nil { score1 += 1 }
+        
+        if food2.brand != nil { score2 += 1 }
+        if food2.barcode != nil { score2 += 1 }
+        
+        return score1 > score2
+    }
+    
+    /// Clean up existing duplicates in the database
+    func cleanupDuplicatesAsync(completion: @escaping (Int) -> Void) {
+        operationQueue.addOperation {
+            Swift.print("🧹 Starting duplicate cleanup...")
+            
+            let allFoods = self.getAllFoodsSync()
+            var duplicateGroups: [[Food]] = []
+            var processedIds = Set<UUID>()
+            
+            // Group foods by potential duplicates
+            for food in allFoods {
+                if processedIds.contains(food.id) { continue }
+                
+                let duplicates = self.findPotentialDuplicatesSync(food)
+                if !duplicates.isEmpty {
+                    var group = [food]
+                    group.append(contentsOf: duplicates)
+                    duplicateGroups.append(group)
+                    
+                    for duplicate in group {
+                        processedIds.insert(duplicate.id)
+                    }
+                }
+            }
+            
+            var cleanedCount = 0
+            
+            // Process each duplicate group
+            for group in duplicateGroups {
+                // Find the best food in the group (highest priority source)
+                let bestFood = group.max { food1, food2 in
+                    let priority1 = self.getSourcePriority(food1.source)
+                    let priority2 = self.getSourcePriority(food2.source)
+                    
+                    if priority1 != priority2 {
+                        return priority1 < priority2
+                    }
+                    
+                    // If same priority, prefer more complete food
+                    return !self.isFoodMoreComplete(food1, thanFood: food2)
+                }!
+                
+                // Delete the duplicates (keep the best one)
+                for food in group {
+                    if food.id != bestFood.id {
+                        if self.deleteFoodSync(food.id) {
+                            cleanedCount += 1
+                            Swift.print("🗑️ Removed duplicate: \(food.name) (\(food.source))")
+                        }
+                    }
+                }
+            }
+            
+            Swift.print("✅ Duplicate cleanup completed. Removed \(cleanedCount) duplicates.")
+            
+            DispatchQueue.main.async {
+                completion(cleanedCount)
+            }
+        }
+    }
+    
+    /// Get all foods from database
+    private func getAllFoodsSync() -> [Food] {
+        let querySQL = "SELECT * FROM Foods"
+        var statement: OpaquePointer?
+        var foods: [Food] = []
+        
+        if sqlite3_prepare_v2(db, querySQL, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let food = createFoodFromRow(statement: statement!) {
+                    foods.append(food)
+                }
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return foods
+    }
+    
+    /// Delete a food by ID
+    private func deleteFoodSync(_ foodId: UUID) -> Bool {
+        let deleteSQL = "DELETE FROM Foods WHERE id = ?"
+        var statement: OpaquePointer?
+        var success = false
+        
+        if sqlite3_prepare_v2(db, deleteSQL, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, foodId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            
+            if sqlite3_step(statement) == SQLITE_DONE {
+                success = true
+            }
+        }
+        
+        sqlite3_finalize(statement)
+        return success
+    }
+    
+    // MARK: - Thread-Safe Public Interface (UPDATED to use duplicate handling)
     
     func getFoodEntriesThreadSafe(for date: Date, completion: @escaping ([FoodEntry]) -> Void) {
         operationQueue.addOperation {
@@ -284,9 +565,10 @@ class DatabaseManager: ObservableObject {
         }
     }
     
+    /// 🆕 UPDATED: Now uses duplicate handling
     func saveFoodThreadSafe(_ food: Food, completion: @escaping (Bool) -> Void = { _ in }) {
         operationQueue.addOperation {
-            let success = self.saveFoodSync(food)
+            let success = self.saveFoodWithDuplicateHandlingSync(food)
             DispatchQueue.main.async {
                 completion(success)
             }
@@ -329,7 +611,7 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    // MARK: - Enhanced Search with Fuzzy Matching
+    // MARK: - Enhanced Search with Fuzzy Matching (DEDUPLICATION AWARE)
    func searchFoodsWithFuzzyMatching(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
        operationQueue.addOperation {
            var allResults: [Food] = []
@@ -368,26 +650,20 @@ class DatabaseManager: ObservableObject {
                        let apiResults = try await APIManager.shared.searchByText(query)
                        Swift.print("🌐 Found \(apiResults.count) API results")
                        
-                       // FIXED: Better filtering and prioritization of API results
-                       let filteredAPIResults = self.filterAndPrioritizeAPIResults(apiResults, query: query)
+                       // 🆕 FILTER API RESULTS FOR DUPLICATES
+                       let filteredAPIResults = self.filterAPIResultsForDuplicates(apiResults, existingResults: allResults)
+                       Swift.print("🔍 After duplicate filtering: \(filteredAPIResults.count) API results")
                        
-                       // Save API results
+                       // Save API results with duplicate handling
                        for food in filteredAPIResults {
                            self.operationQueue.addOperation {
-                               _ = self.saveFoodSync(food)
+                               _ = self.saveFoodWithDuplicateHandlingSync(food)
                            }
                        }
                        
-                       // Filter duplicates
-                       let newResults = filteredAPIResults.filter { apiFood in
-                           !allResults.contains { localFood in
-                               self.areFoodsSimilar(apiFood, localFood)
-                           }
-                       }
+                       allResults.append(contentsOf: filteredAPIResults)
                        
-                       allResults.append(contentsOf: newResults)
-                       
-                       // FIXED: Re-sort all results by relevance
+                       // Re-sort all results by relevance
                        let finalResults = self.sortFoodsByRelevance(allResults, query: query)
                        
                        DispatchQueue.main.async {
@@ -410,81 +686,16 @@ class DatabaseManager: ObservableObject {
        }
    }
 
-   // FIXED: Add better API result filtering
-   private func filterAndPrioritizeAPIResults(_ foods: [Food], query: String) -> [Food] {
-       let queryLower = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-       
-       return foods.filter { food in
-           let name = food.name.lowercased()
-           let brand = food.brand?.lowercased() ?? ""
-           
-           // Filter out obvious junk results
-           if brand.contains("just, inc") || brand.contains("mars chocolate") || brand.contains("ross acquisition") {
-               return false
+   /// 🆕 Filter API results to remove duplicates of existing foods
+   private func filterAPIResultsForDuplicates(_ apiResults: [Food], existingResults: [Food]) -> [Food] {
+       return apiResults.filter { apiFood in
+           // Check if this API result duplicates any existing result
+           return !existingResults.contains { existingFood in
+               areFoodsDuplicates(apiFood, existingFood, tolerance: 0.3) // More lenient for API vs local comparison
            }
-           
-           // Filter out results with way too many words (likely processed foods)
-           if name.components(separatedBy: " ").count > 6 {
-               return false
-           }
-           
-           // Filter out results with weird units
-           if food.servingSizeUnit.lowercased().contains("mlt") || food.servingSizeUnit.lowercased().contains("grm") {
-               return false
-           }
-           
-           // Prioritize basic foods
-           let basicFoods = ["egg", "milk", "sugar", "flour", "butter", "salt", "rice", "chicken", "beef", "apple", "banana", "bread", "cheese"]
-           for basicFood in basicFoods {
-               if queryLower.contains(basicFood) {
-                   // For basic foods, only keep simple results
-                   if name.contains(basicFood) && name.components(separatedBy: " ").count <= 3 {
-                       return true
-                   }
-                   // Filter out complex branded versions
-                   if name.contains(basicFood) && name.components(separatedBy: " ").count > 4 {
-                       return false
-                   }
-               }
-           }
-           
-           return true
-       }.sorted { food1, food2 in
-           let score1 = calculateAPIFoodScore(food1, query: queryLower)
-           let score2 = calculateAPIFoodScore(food2, query: queryLower)
-           return score1 > score2
        }
    }
 
-   // FIXED: Better scoring for API results
-   private func calculateAPIFoodScore(_ food: Food, query: String) -> Int {
-       let name = food.name.lowercased()
-       var score = 0
-       
-       // Heavily prioritize exact matches
-       if name == query { score += 1000 }
-       
-       // Prioritize simple foods
-       let wordCount = name.components(separatedBy: " ").count
-       if wordCount <= 2 { score += 500 }
-       else if wordCount <= 3 { score += 200 }
-       else if wordCount > 5 { score -= 300 }
-       
-       // Boost if starts with query
-       if name.hasPrefix(query) { score += 300 }
-       
-       // Boost reasonable calorie ranges
-       let calories = food.nutritionInfo.calories ?? 0
-       if calories > 0 && calories < 500 { score += 100 }
-       if calories > 1000 { score -= 200 }
-       
-       // Penalize zero calories (often weird products)
-       if calories == 0 { score -= 400 }
-       
-       return score
-   }
-
-   // FIXED: Add method to sort all results by relevance
    private func sortFoodsByRelevance(_ foods: [Food], query: String) -> [Food] {
        return foods.sorted { food1, food2 in
            let score1 = calculateFinalRelevanceScore(food1, query: query)
@@ -501,14 +712,14 @@ class DatabaseManager: ObservableObject {
        // Exact match gets highest priority
        if nameLower == queryLower { score += 2000 }
        
+       // Source priority boost
+       score += getSourcePriority(food.source)
+       
        // Simple foods get priority
        let wordCount = nameLower.components(separatedBy: " ").count
        if wordCount <= 2 { score += 800 }
        else if wordCount <= 3 { score += 400 }
        else if wordCount > 5 { score -= 300 }
-       
-       // Local/manual foods get slight boost
-       if food.source == "manual" { score += 100 }
        
        // Starts with query
        if nameLower.hasPrefix(queryLower) { score += 600 }
@@ -546,9 +757,9 @@ class DatabaseManager: ObservableObject {
                     if let apiFood = try await APIManager.shared.searchByBarcode(barcode) {
                         Swift.print("🌐 ✅ Found food via OpenFoodFacts API: \(apiFood.name)")
                         
-                        // Save to database using thread-safe method
+                        // 🆕 SAVE WITH DUPLICATE HANDLING
                         self.operationQueue.addOperation {
-                            let saveSuccess = self.saveFoodSync(apiFood)
+                            let saveSuccess = self.saveFoodWithDuplicateHandlingSync(apiFood)
                             Swift.print("💾 Save to database: \(saveSuccess ? "SUCCESS" : "FAILED")")
                             
                             DispatchQueue.main.async {
@@ -1234,7 +1445,7 @@ class DatabaseManager: ObservableObject {
     }
 }
 
-// MARK: - Recipe Operations
+// MARK: - Recipe Operations (Unchanged from original)
 extension DatabaseManager {
    
    func saveRecipeAsync(_ recipe: Recipe, completion: @escaping () -> Void = {}) {

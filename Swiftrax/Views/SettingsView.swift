@@ -341,7 +341,11 @@ struct NutritionGoalsView: View {
                                 if userSettings.nutritionGoals == nil {
                                     userSettings.nutritionGoals = NutritionGoals()
                                 }
-                                userSettings.nutritionGoals?.calorieGoal = Double(newValue)
+                                if newValue.isEmpty {
+                                    userSettings.nutritionGoals?.calorieGoal = nil
+                                } else {
+                                    userSettings.nutritionGoals?.calorieGoal = Double(newValue) ?? 0
+                                }
                             }
                         ),
                         unit: "kcal"
@@ -363,7 +367,11 @@ struct NutritionGoalsView: View {
                                 if userSettings.nutritionGoals == nil {
                                     userSettings.nutritionGoals = NutritionGoals()
                                 }
-                                userSettings.nutritionGoals?.proteinGoal = Double(newValue)
+                                if newValue.isEmpty {
+                                    userSettings.nutritionGoals?.proteinGoal = nil
+                                } else {
+                                    userSettings.nutritionGoals?.proteinGoal = Double(newValue) ?? 0
+                                }
                             }
                         ),
                         unit: "g"
@@ -385,7 +393,11 @@ struct NutritionGoalsView: View {
                                 if userSettings.nutritionGoals == nil {
                                     userSettings.nutritionGoals = NutritionGoals()
                                 }
-                                userSettings.nutritionGoals?.carbGoal = Double(newValue)
+                                if newValue.isEmpty {
+                                    userSettings.nutritionGoals?.carbGoal = nil
+                                } else {
+                                    userSettings.nutritionGoals?.carbGoal = Double(newValue) ?? 0
+                                }
                             }
                         ),
                         unit: "g"
@@ -407,12 +419,93 @@ struct NutritionGoalsView: View {
                                 if userSettings.nutritionGoals == nil {
                                     userSettings.nutritionGoals = NutritionGoals()
                                 }
-                                userSettings.nutritionGoals?.fatGoal = Double(newValue)
+                                if newValue.isEmpty {
+                                    userSettings.nutritionGoals?.fatGoal = nil
+                                } else {
+                                    userSettings.nutritionGoals?.fatGoal = Double(newValue) ?? 0
+                                }
                             }
                         ),
                         unit: "g"
                     )
                 }
+               if userSettings.trackingPreferences.trackFiber {
+                   GoalInputView(
+                       title: "Fiber",
+                       value: Binding(
+                           get: {
+                               if let goal = userSettings.nutritionGoals?.fiberGoal {
+                                   return String(Int(goal))
+                               } else {
+                                   return ""
+                               }
+                           },
+                           set: { newValue in
+                               if userSettings.nutritionGoals == nil {
+                                   userSettings.nutritionGoals = NutritionGoals()
+                               }
+                               if newValue.isEmpty {
+                                   userSettings.nutritionGoals?.fiberGoal = nil
+                               } else {
+                                   userSettings.nutritionGoals?.fiberGoal = Double(newValue) ?? 0
+                               }
+                           }
+                       ),
+                       unit: "g"
+                   )
+               }
+
+               if userSettings.trackingPreferences.trackSugar {
+                   GoalInputView(
+                       title: "Sugar",
+                       value: Binding(
+                           get: {
+                               if let goal = userSettings.nutritionGoals?.sugarGoal {
+                                   return String(Int(goal))
+                               } else {
+                                   return ""
+                               }
+                           },
+                           set: { newValue in
+                               if userSettings.nutritionGoals == nil {
+                                   userSettings.nutritionGoals = NutritionGoals()
+                               }
+                               if newValue.isEmpty {
+                                   userSettings.nutritionGoals?.sugarGoal = nil
+                               } else {
+                                   userSettings.nutritionGoals?.sugarGoal = Double(newValue) ?? 0
+                               }
+                           }
+                       ),
+                       unit: "g"
+                   )
+               }
+
+               if userSettings.trackingPreferences.trackSodium {
+                   GoalInputView(
+                       title: "Sodium",
+                       value: Binding(
+                           get: {
+                               if let goal = userSettings.nutritionGoals?.sodiumGoal {
+                                   return String(Int(goal))
+                               } else {
+                                   return ""
+                               }
+                           },
+                           set: { newValue in
+                               if userSettings.nutritionGoals == nil {
+                                   userSettings.nutritionGoals = NutritionGoals()
+                               }
+                               if newValue.isEmpty {
+                                   userSettings.nutritionGoals?.sodiumGoal = nil
+                               } else {
+                                   userSettings.nutritionGoals?.sodiumGoal = Double(newValue) ?? 0
+                               }
+                           }
+                       ),
+                       unit: "mg"
+                   )
+               }
             }
             
             Section {
@@ -424,9 +517,48 @@ struct NutritionGoalsView: View {
         }
         .navigationTitle("Nutrition Goals")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    hideKeyboard()
+                }
+            }
+        }
         .onAppear {
             if userSettings.nutritionGoals == nil {
                 userSettings.nutritionGoals = NutritionGoals()
+            }
+        }
+        .onChange(of: userSettings.nutritionGoals?.calorieGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.proteinGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.carbGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.fatGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.fiberGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.sugarGoal) { _ in
+            saveGoals()
+        }
+        .onChange(of: userSettings.nutritionGoals?.sodiumGoal) { _ in
+            saveGoals()
+        }
+    }
+    
+    private func saveGoals() {
+        Task {
+            await withCheckedContinuation { continuation in
+                DatabaseManager.shared.saveUserSettingsAsync(userSettings) {
+                    continuation.resume()
+                }
             }
         }
     }

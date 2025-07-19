@@ -107,4 +107,4 @@ The app uses SQLite with the following main tables:
 *Built as a capstone project focusing on clean architecture, user experience, and practical nutrition tracking without the bloat of typical fitness apps.*
 
 **Author**: Amelia Tuttle  
-**Date**: Jully 2025
+**Date**: July 2025

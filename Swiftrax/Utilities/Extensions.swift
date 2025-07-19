@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 
-// MARK: - Double Extensions
 extension Double {
     var formattedNutrition: String {
         if self.truncatingRemainder(dividingBy: 1) == 0 {
@@ -12,7 +11,6 @@ extension Double {
     }
 }
 
-// MARK: - FoodEntry Array Extensions
 extension Array where Element == FoodEntry {
     func filteredByMealType(_ mealType: MealType) -> [FoodEntry] {
         return self.filter { $0.mealType == mealType }
@@ -50,15 +48,10 @@ extension Array where Element == FoodEntry {
     }
 }
 
-// MARK: - FIXED Apple Guidelines Color System - Manual Override
 extension Color {
-    
-    // MARK: - MANUAL APPLE SYSTEM COLORS (Override broken system colors)
-    // These are the EXACT colors Apple uses, implemented manually
     static let properSystemBackground = Color(UIColor { traitCollection in
         switch traitCollection.userInterfaceStyle {
         case .dark:
-            // Apple's actual systemBackground dark color - NOT pure black!
             return UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1.0) // #1C1C1E
         default:
             return UIColor.white // #FFFFFF
@@ -68,8 +61,7 @@ extension Color {
     static let properSystemGroupedBackground = Color(UIColor { traitCollection in
         switch traitCollection.userInterfaceStyle {
         case .dark:
-            // Apple's actual systemGroupedBackground dark color
-            return UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0) // Actually IS black for grouped
+            return UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
         default:
             return UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1.0) // #F2F2F7
         }
@@ -78,30 +70,25 @@ extension Color {
     static let properSecondarySystemBackground = Color(UIColor { traitCollection in
         switch traitCollection.userInterfaceStyle {
         case .dark:
-            // This one works correctly on your device
             return UIColor(red: 0.173, green: 0.173, blue: 0.180, alpha: 1.0) // #2C2C2E
         default:
             return UIColor.white // #FFFFFF
         }
     })
     
-    // MARK: - App-Specific Backgrounds (Using Manual Colors)
-    static let appBackground = properSystemGroupedBackground // Was broken, now fixed
-    static let mealCardBackground = properSystemBackground // Was broken, now fixed
-    static let foodItemBackground = properSecondarySystemBackground // This was working
-    static let nutritionCardBackground = properSystemBackground // Was broken, now fixed
-    
-    // MARK: - Semantic Text Colors (These work correctly)
+    static let appBackground = properSystemGroupedBackground
+    static let mealCardBackground = properSystemBackground
+    static let foodItemBackground = properSecondarySystemBackground
+    static let nutritionCardBackground = properSystemBackground
+
     static let adaptiveText = Color(.label)
     static let adaptiveSecondaryText = Color(.secondaryLabel)
     static let adaptiveTertiaryText = Color(.tertiaryLabel)
-    
-    // MARK: - Legacy Background Names (Keep for compatibility)
+
     static let adaptiveBackground = properSystemBackground
     static let adaptiveSecondaryBackground = properSecondarySystemBackground
     static let adaptiveTertiaryBackground = Color(.tertiarySystemBackground)
-    
-    // MARK: - Semantic System Colors for Nutrition (Apple Guidelines Compliant)
+
     static let nutritionOrange = Color(.systemOrange)
     static let nutritionRed = Color(.systemRed)
     static let nutritionBlue = Color(.systemBlue)
@@ -112,8 +99,7 @@ extension Color {
     static let nutritionIndigo = Color(.systemIndigo)
     static let nutritionTeal = Color(.systemTeal)
     static let nutritionMint = Color(.systemMint)
-    
-    // MARK: - Semantic Action Colors (Apple Standard)
+
     static var primaryAccent: Color {
         Color(.systemBlue)
     }
@@ -129,8 +115,7 @@ extension Color {
     static var warningAction: Color {
         Color(.systemOrange)
     }
-    
-    // MARK: - High Contrast Support (Accessibility)
+
     static func adaptiveNutritionColor(base: UIColor, highContrast: UIColor) -> Color {
         Color(UIColor { traitCollection in
             if traitCollection.accessibilityContrast == .high {
@@ -157,20 +142,17 @@ extension Color {
     static var nutritionFat: Color {
         adaptiveNutritionColor(base: .systemPurple, highContrast: .systemPurple)
     }
-    
-    // MARK: - Dynamic Fill Colors (Apple Guidelines)
+
     static let fillPrimary = Color(.systemFill)
     static let fillSecondary = Color(.secondarySystemFill)
     static let fillTertiary = Color(.tertiarySystemFill)
     static let fillQuaternary = Color(.quaternarySystemFill)
-    
-    // MARK: - Backwards Compatibility (Keep existing names for existing code)
+
     static let cardBackground = properSecondarySystemBackground
     static let highContrastCardBackground = Color(.tertiarySystemBackground)
     static let subCardBackground = properSystemBackground
 }
 
-// MARK: - Custom Color Helper (Enhanced for Accessibility)
 extension Color {
     init(light: Color, dark: Color) {
         self.init(uiColor: UIColor { traitCollection in
@@ -203,7 +185,6 @@ extension Color {
     }
 }
 
-// MARK: - AppTheme Extension for ColorScheme Support (Unchanged)
 extension AppTheme {
     var displayName: String {
         return self.rawValue
@@ -232,10 +213,8 @@ extension AppTheme {
     }
 }
 
-// MARK: - Enhanced View Modifiers (Apple Guidelines Compliant)
 extension View {
-    
-    // MARK: - Apple-Compliant Card Styling
+
     func appleCardStyle() -> some View {
         self
             .background(Color.mealCardBackground)
@@ -245,13 +224,11 @@ extension View {
                 radius: 8, x: 0, y: 4
             )
     }
-    
-    // MARK: - Consistent app background for all views
+
     func appBackground() -> some View {
         self.background(Color.appBackground)
     }
-    
-    // MARK: - Consistent meal card styling
+
     func mealCardStyle() -> some View {
         self
             .background(Color.mealCardBackground)
@@ -259,7 +236,6 @@ extension View {
             .shadow(color: Color.primary.opacity(0.1), radius: 4, x: 0, y: 2)
     }
     
-    // MARK: - Consistent food item styling
     func foodItemStyle() -> some View {
         self
             .background(Color.foodItemBackground)
@@ -267,7 +243,6 @@ extension View {
             .shadow(color: Color.primary.opacity(0.08), radius: 2, x: 0, y: 1)
     }
     
-    // MARK: - Nutrition Metric Styling
     func nutritionMetricStyle(color: Color) -> some View {
         self
             .padding(.horizontal, 12)
@@ -277,7 +252,6 @@ extension View {
             .cornerRadius(8)
     }
     
-    // MARK: - Accessibility-Aware Button Styling
     func accessibleButton(style: ButtonType = .primary) -> some View {
         self
             .padding()
@@ -287,7 +261,6 @@ extension View {
             .accessibilityAddTraits(.isButton)
     }
     
-    // MARK: - High Contrast Border Support
     @ViewBuilder
     func adaptiveBorder() -> some View {
         if UIAccessibility.isReduceTransparencyEnabled {
@@ -301,7 +274,6 @@ extension View {
     }
 }
 
-// MARK: - Environment-aware View Modifier (Enhanced)
 struct AdaptiveCardStyle: ViewModifier {
     @Environment(\.colorScheme) var colorScheme
     
@@ -326,7 +298,6 @@ extension View {
     }
 }
 
-// MARK: - Button Type System (Apple Guidelines)
 enum ButtonType {
     case primary
     case secondary
@@ -352,7 +323,6 @@ enum ButtonType {
     }
 }
 
-// MARK: - Nutrition Metric Enum
 enum NutritionMetric {
     case calories
     case protein

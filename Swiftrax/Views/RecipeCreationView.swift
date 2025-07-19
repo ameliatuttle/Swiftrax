@@ -93,7 +93,7 @@ struct RecipeCreationView: View {
                 selectedFood = food
                 showingAddIngredient = false
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     showingQuantityEntry = true
                 }
             })

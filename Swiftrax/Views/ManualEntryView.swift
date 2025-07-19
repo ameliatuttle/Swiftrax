@@ -560,14 +560,6 @@ struct NutritionInputRow: View {
                 TextField("0", text: $value)
                     .focused(focusedField, equals: field)
                     .keyboardType(.decimalPad)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Done") {
-                                hideKeyboard()
-                            }
-                        }
-                    }
                     .multilineTextAlignment(.trailing)
                     .frame(width: 60)
                     .onSubmit {

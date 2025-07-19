@@ -365,14 +365,6 @@ struct LogRecipeView: View {
                     HStack {
                         TextField("Servings", text: $servings)
                             .keyboardType(.decimalPad)
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button("Done") {
-                                        hideKeyboard()
-                                    }
-                                }
-                            }
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                         
                         Text("servings")

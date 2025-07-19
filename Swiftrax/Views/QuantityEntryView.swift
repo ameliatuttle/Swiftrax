@@ -321,15 +321,6 @@ struct ImprovedQuantityInputSection: View {
                 HStack {
                     TextField("Amount", text: $quantity)
                         .keyboardType(.decimalPad)
-                        .toolbar {
-                            ToolbarItemGroup(placement: .keyboard) {
-                                Spacer()
-                                Button("Done") {
-                                    hideKeyboard()
-                                }
-                            }
-                        }
-
                         .font(.title2)
                         .fontWeight(.medium)
                         .multilineTextAlignment(.center)

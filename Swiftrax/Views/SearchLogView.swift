@@ -377,50 +377,67 @@ struct SearchLogView: View {
    
    // Search for foods using local database first, then API fallback
    private func performSearch() {
-      guard !searchText.isEmpty else {
-         clearSearch()
-         return
-      }
-      
-      print("Searching for: '\(searchText)'")
-      
-      Task { @MainActor in
-         self.isLoading = true
-         self.searchResults = []
-      }
-      
-      Task {
-         // Search local database first
-         let localResults = await DatabaseManager.shared.searchFoodsAsync(query: searchText)
-         print("Found \(localResults.count) local results")
-         
-         if localResults.count >= 1 {
-            Task { @MainActor in
-               self.searchResults = localResults
-               self.isLoading = false
-            }
-            return
-         }
-         
-         // Search API if insufficient local results
-         print("Searching API for additional results")
-         do {
-            let apiResults = try await APIManager.shared.searchByText(searchText)
-            print("Found \(apiResults.count) API results")
-            Task { @MainActor in
-               self.searchResults = localResults + apiResults
-               self.isLoading = false
-            }
-         } catch {
-            print("API search failed: \(error.localizedDescription)")
-            Task { @MainActor in
-               self.searchResults = localResults
-               self.isLoading = false
-               self.errorMessage = "Could not fetch from OpenFoodFacts"
-               self.showingError = true
-            }
-         }
-      }
+       guard !searchText.isEmpty else {
+           clearSearch()
+           return
+       }
+       
+       print("Searching for: '\(searchText)'")
+       
+       Task { @MainActor in
+           self.isLoading = true
+           self.searchResults = []
+       }
+       
+       Task {
+           // Search local database first
+           let localResults = await DatabaseManager.shared.searchFoodsAsync(query: searchText)
+           print("Found \(localResults.count) local results")
+           
+           // Always search API for additional variety
+           print("Searching API for additional results")
+           do {
+               let apiResults = try await APIManager.shared.searchByText(searchText)
+               print("Found \(apiResults.count) API results")
+               
+               // COMBINE: Local + API results with deduplication
+               let allResults = localResults + apiResults
+               let uniqueResults = deduplicateSearchResults(allResults)
+               print("After deduplication: \(uniqueResults.count) unique results (local + API)")
+               
+               Task { @MainActor in
+                   self.searchResults = uniqueResults
+                   self.isLoading = false
+               }
+           } catch {
+               print("API search failed: \(error.localizedDescription)")
+               print("Falling back to local results only")
+               
+               // API failed - just show local results (still deduplicated)
+               Task { @MainActor in
+                   self.searchResults = deduplicateSearchResults(localResults)
+                   self.isLoading = false
+                   // Don't show error alert - just silently fall back to local
+               }
+           }
+       }
+   }
+
+   // Helper function fro duplicate results
+   private func deduplicateSearchResults(_ foods: [Food]) -> [Food] {
+       var seen = Set<String>()
+       var uniqueFoods: [Food] = []
+       
+       for food in foods {
+           let key = food.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+           
+           if !seen.contains(key) {
+               seen.insert(key)
+               uniqueFoods.append(food)
+           }
+       }
+       
+       return uniqueFoods
    }
    
    // Clear search text and results

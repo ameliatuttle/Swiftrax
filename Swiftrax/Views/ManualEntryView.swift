@@ -72,15 +72,6 @@ struct ManualEntryView: View {
                         TextField("Amount", text: $servingSize)
                             .focused($focusedField, equals: .servingSize)
                             .keyboardType(.decimalPad)
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button("Done") {
-                                        hideKeyboard()
-                                    }
-                                }
-                            }
-
                             .frame(maxWidth: .infinity)
                             .onSubmit {
                                 focusedField = .calories

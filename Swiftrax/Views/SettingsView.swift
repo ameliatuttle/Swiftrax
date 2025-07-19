@@ -445,15 +445,6 @@ struct GoalInputView: View {
             
             TextField("Goal", text: $value)
                 .keyboardType(.decimalPad)
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Done") {
-                            hideKeyboard()
-                        }
-                    }
-                }
-
                 .multilineTextAlignment(.trailing)
                 .frame(width: 80)
             

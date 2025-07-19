@@ -95,13 +95,12 @@ The app uses SQLite with the following main tables:
 |-----------|-------------|-----------------|--------------|---------|----------|----------|
 | ![Dashboard](screenshots/Dashboard.png) | ![Search](screenshots/SearchLog.png) | ![Recipe](screenshots/Recipes.png) | ![Manual](screenshots/Manual.png) | ![History](screenshots/History.png) | ![Settings](screenshots/Settings.png) | ![AppLogo](screenshots/AppLogo.png) |
 
-(App logo curtesy of Brittney Hanson)
-
 ## 🙏 Acknowledgments
 
 - [OpenFoodFacts](https://world.openfoodfacts.org/) for their comprehensive food database
 - [USDA FoodData Central](https://fdc.nal.usda.gov/) for nutrition data
 - Apple's SwiftUI team for the excellent framework
+- Brittney Hanson for the awesome App Logo
 
 ---
 

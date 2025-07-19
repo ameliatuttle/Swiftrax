@@ -1,6 +1,6 @@
 # Swiftrax 🍎
 
-A clean, focused nutrition tracking app for iOS built with SwiftUI. No fitness features, no ads, no sponsored content—just simple, effective food logging.
+A clean, focused nutrition tracking app for iOS built with SwiftUI. No fitness features, no ads, no sponsored content. Just simple, swift food logging.
 
 ## 📱 Features
 
@@ -15,7 +15,7 @@ A clean, focused nutrition tracking app for iOS built with SwiftUI. No fitness f
 - **⏰ Recent Foods**: Quick access to recently logged items
 - **🍽️ Meal Organization**: Log foods to breakfast, lunch, dinner, or snacks
 - **📏 Smart Units**: Flexible serving size units with automatic conversion
-- **🌙 Dark/Light Themes**: System-aware theming with manual override
+- **🌙 Dark/Light Themes**: System aware theming with manual override
 
 ### Tracking & Analytics
 - **⚙️ Customizable Tracking**: Choose which nutrients to monitor (calories, protein, carbs, fat, fiber, etc.)
@@ -45,7 +45,7 @@ Swiftrax/
 
 ## 🔧 Key Components
 
-- **DatabaseManager**: Thread-safe SQLite operations with duplicate prevention
+- **DatabaseManager**: Thread safe SQLite operations with duplicate prevention
 - **APIManager**: Handles OpenFoodFacts and USDA API integration
 - **BarcodeScannerUtility**: Camera-based barcode detection
 - **UnitConverter**: Flexible measurement unit conversion system

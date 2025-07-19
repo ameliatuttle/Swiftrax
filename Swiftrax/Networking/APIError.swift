@@ -1,5 +1,6 @@
 import Foundation
 
+// Error types for API operations
 enum APIError: Error, LocalizedError {
     case invalidURL
     case invalidResponse

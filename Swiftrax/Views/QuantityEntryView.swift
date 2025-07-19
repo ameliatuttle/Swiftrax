@@ -33,7 +33,6 @@ struct QuantityEntryView: View {
             return NutritionInfo.zero
         }
         
-        // Get nutrition for the current quantity and unit
         return food.nutritionFor(quantity: quantityValue, unit: selectedUnit)
     }
     
@@ -42,50 +41,46 @@ struct QuantityEntryView: View {
         return value > 0
     }
     
-    // Smart default quantities for different units
-   private func getSmartDefaultQuantity(for unit: MeasurementUnit) -> String {
-       // Always return the food’s actual serving size if the unit matches the original
-       if unit == originalUnit {
-           return food.servingSize.formattedNutrition
-       }
+    // Returns appropriate default quantity based on unit type and category
+    private func getSmartDefaultQuantity(for unit: MeasurementUnit) -> String {
+        if unit == originalUnit {
+            return food.servingSize.formattedNutrition
+        }
 
-       // Only use these if user switches units
-       switch unit.category {
-       case .weight:
-           if unit == .grams {
-               return "100"
-           } else if unit == .ounces {
-               return "3.5"
-           } else if unit == .pounds {
-               return "0.25"
-           }
-       case .volume:
-           if unit == .cups {
-               return "1"
-           } else if unit == .tablespoons {
-               return "2"
-           } else if unit == .milliliters {
-               return "250"
-           }
-       case .count:
-           return "1"
-       }
+        switch unit.category {
+        case .weight:
+            if unit == .grams {
+                return "100"
+            } else if unit == .ounces {
+                return "3.5"
+            } else if unit == .pounds {
+                return "0.25"
+            }
+        case .volume:
+            if unit == .cups {
+                return "1"
+            } else if unit == .tablespoons {
+                return "2"
+            } else if unit == .milliliters {
+                return "250"
+            }
+        case .count:
+            return "1"
+        }
 
-       // Fallback to original serving size
-       return food.servingSize.formattedNutrition
-   }
+        return food.servingSize.formattedNutrition
+    }
    
    var numberOfServings: Double? {
        guard food.servingSize > 0, let qty = Double(quantity) else { return nil }
        let ratio = qty / food.servingSize
-       return round(ratio * 100) / 100  // round to 2 decimals
+       return round(ratio * 100) / 100
    }
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Food Information Card
                     ImprovedFoodInfoCard(food: food)
                    
                    if let servings = numberOfServings {
@@ -94,7 +89,6 @@ struct QuantityEntryView: View {
                            .foregroundColor(.secondary)
                    }
                    
-                    // Quantity Input Section
                     ImprovedQuantityInputSection(
                         quantity: $quantity,
                         selectedUnit: $selectedUnit,
@@ -112,26 +106,23 @@ struct QuantityEntryView: View {
                        in: 0...500,
                        step: 0.5
                    )
-                   .accentColor(.blue)
                    .padding(.horizontal)
                    
-                    
-                   // Unit Conversion Display
                    if selectedUnit != originalUnit {
                        VStack(spacing: 8) {
                            Text("Unit Conversion")
                                .font(.headline)
                                .fontWeight(.semibold)
-                               .foregroundColor(Color.adaptiveText) // Using semantic color
+                               .foregroundColor(Color.adaptiveText)
                            
                            HStack {
                                Text("\(quantity) \(selectedUnit.abbreviation)")
                                    .font(.subheadline)
                                    .fontWeight(.medium)
-                                   .foregroundColor(Color.adaptiveText) // Using semantic color
+                                   .foregroundColor(Color.adaptiveText)
                                
                                Image(systemName: "arrow.right")
-                                   .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                                   .foregroundColor(Color.primaryAccent)
                                    .font(.caption)
                                
                                if let convertedQuantity = UnitConverter.shared.convert(
@@ -142,21 +133,20 @@ struct QuantityEntryView: View {
                                    Text("\(UnitConversionHelper.formatQuantity(convertedQuantity)) \(originalUnit.abbreviation)")
                                        .font(.subheadline)
                                        .fontWeight(.medium)
-                                       .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                                       .foregroundColor(Color.primaryAccent)
                                }
                                
                                Spacer()
                            }
                            .padding()
-                           .background(Color.primaryAccent.opacity(0.05)) // Using semantic accent color
+                           .background(Color.primaryAccent.opacity(0.05))
                            .cornerRadius(8)
                        }
                        .padding()
-                       .background(Color.nutritionOrange.opacity(0.05)) // Using semantic orange color
+                       .background(Color.nutritionOrange.opacity(0.05))
                        .cornerRadius(12)
                    }
                     
-                    // Nutrition Preview
                     if isValidQuantity {
                         ImprovedNutritionPreviewCard(
                             nutrition: calculatedNutrition,
@@ -181,7 +171,7 @@ struct QuantityEntryView: View {
                 }
                 .disabled(!isValidQuantity)
                 .fontWeight(.semibold)
-                .foregroundColor(isValidQuantity ? Color.primaryAccent : Color.adaptiveSecondaryText) // Using semantic colors
+                .foregroundColor(isValidQuantity ? Color.primaryAccent : Color.adaptiveSecondaryText)
             )
         }
         .sheet(isPresented: $showingUnitPicker) {
@@ -197,24 +187,22 @@ struct QuantityEntryView: View {
         }
     }
     
-   private func handleUnitChange(to newUnit: MeasurementUnit) {
-       withAnimation(.easeInOut(duration: 0.3)) {
-           selectedUnit = newUnit
-           // Set a smart default quantity for the new unit
-           quantity = getSmartDefaultQuantity(for: newUnit)
-       }
-   }
+    // Updates selected unit and sets appropriate default quantity
+    private func handleUnitChange(to newUnit: MeasurementUnit) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            selectedUnit = newUnit
+            quantity = getSmartDefaultQuantity(for: newUnit)
+        }
+    }
     
     private func saveEntry() {
         guard let quantityValue = Double(quantity), quantityValue > 0 else { return }
         
-        print("💾 Saving entry: \(quantityValue) \(selectedUnit.abbreviation) of \(food.name)")
         onSave(quantityValue, selectedUnit)
         presentationMode.wrappedValue.dismiss()
     }
 }
 
-// MARK: - Improved Food Info Card
 struct ImprovedFoodInfoCard: View {
     let food: Food
     
@@ -226,18 +214,17 @@ struct ImprovedFoodInfoCard: View {
                         .font(.title2)
                         .fontWeight(.bold)
                         .multilineTextAlignment(.leading)
-                        .foregroundColor(Color.adaptiveText) // Using semantic color
+                        .foregroundColor(Color.adaptiveText)
                     
                     if let brand = food.brand {
                         Text(brand)
                             .font(.subheadline)
-                            .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                            .foregroundColor(Color.adaptiveSecondaryText)
                     }
                 }
                 
                 Spacer()
                 
-                // Source indicator
                 VStack(spacing: 4) {
                     if food.isFromAPI {
                         VStack(spacing: 2) {
@@ -246,7 +233,7 @@ struct ImprovedFoodInfoCard: View {
                             Text(food.source)
                                 .font(.caption2)
                                 .fontWeight(.medium)
-                                .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                                .foregroundColor(Color.adaptiveSecondaryText)
                         }
                     } else {
                         VStack(spacing: 2) {
@@ -255,7 +242,7 @@ struct ImprovedFoodInfoCard: View {
                             Text("Custom")
                                 .font(.caption2)
                                 .fontWeight(.medium)
-                                .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                                .foregroundColor(Color.adaptiveSecondaryText)
                         }
                     }
                 }
@@ -263,12 +250,11 @@ struct ImprovedFoodInfoCard: View {
             
             Divider()
             
-            // Original serving information
             VStack(spacing: 8) {
                 HStack {
                     Text("Original Serving Size")
                         .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                         .fontWeight(.medium)
                     
                     Spacer()
@@ -276,10 +262,9 @@ struct ImprovedFoodInfoCard: View {
                     Text("\(food.servingSize.formattedNutrition) \(food.servingSizeUnit)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(Color.adaptiveText) // Using semantic color
+                        .foregroundColor(Color.adaptiveText)
                 }
                 
-                // Macro breakdown for original serving
                 HStack {
                     MacroChip(label: "Cal", value: food.nutritionInfo.calories ?? 0, color: Color.nutritionOrange)
                     MacroChip(label: "P", value: food.nutritionInfo.protein ?? 0, color: Color.nutritionRed)
@@ -290,12 +275,11 @@ struct ImprovedFoodInfoCard: View {
             }
         }
         .padding()
-        .background(Color.fillSecondary.opacity(0.5)) // Using semantic fill color
+        .background(Color.fillSecondary.opacity(0.5))
         .cornerRadius(12)
     }
 }
 
-// MARK: - Macro Chip (Updated with semantic colors)
 struct MacroChip: View {
     let label: String
     let value: Double
@@ -317,7 +301,6 @@ struct MacroChip: View {
     }
 }
 
-// MARK: - Improved Quantity Input Section
 struct ImprovedQuantityInputSection: View {
     @Binding var quantity: String
     @Binding var selectedUnit: MeasurementUnit
@@ -332,10 +315,9 @@ struct ImprovedQuantityInputSection: View {
             Text("How much are you eating?")
                 .font(.headline)
                 .fontWeight(.semibold)
-                .foregroundColor(Color.adaptiveText) // Using semantic color
+                .foregroundColor(Color.adaptiveText)
             
             HStack(spacing: 12) {
-                // Quantity Input
                 HStack {
                     TextField("Amount", text: $quantity)
                         .keyboardType(.decimalPad)
@@ -351,20 +333,19 @@ struct ImprovedQuantityInputSection: View {
                         .font(.title2)
                         .fontWeight(.medium)
                         .multilineTextAlignment(.center)
-                        .foregroundColor(Color.adaptiveText) // Using semantic color
+                        .foregroundColor(Color.adaptiveText)
                     
                     Button("Clear") {
                         quantity = ""
                     }
                     .font(.caption)
-                    .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                    .foregroundColor(Color.primaryAccent)
                     .opacity(quantity.isEmpty ? 0 : 1)
                 }
                 .padding()
-                .background(Color.fillSecondary) // Using semantic fill color
+                .background(Color.fillSecondary)
                 .cornerRadius(12)
                 
-                // Unit Selector Button
                 Button(action: {
                     showingUnitPicker = true
                 }) {
@@ -379,22 +360,21 @@ struct ImprovedQuantityInputSection: View {
                         
                         Image(systemName: "chevron.down")
                             .font(.caption2)
-                            .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                            .foregroundColor(Color.adaptiveSecondaryText)
                     }
                     .padding()
                     .frame(minWidth: 80)
-                    .background(Color.primaryAccent.opacity(0.1)) // Using semantic accent color
-                    .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                    .background(Color.primaryAccent.opacity(0.1))
+                    .foregroundColor(Color.primaryAccent)
                     .cornerRadius(12)
                 }
             }
             
-            // Quick Unit Buttons
             if suggestedUnits.count > 1 {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Quick units:")
                         .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -414,12 +394,11 @@ struct ImprovedQuantityInputSection: View {
             }
         }
         .padding()
-        .background(Color.fillSecondary.opacity(0.5)) // Using semantic fill color
+        .background(Color.fillSecondary.opacity(0.5))
         .cornerRadius(12)
     }
 }
 
-// MARK: - Quick Unit Button (Updated with semantic colors)
 struct QuickUnitButton: View {
     let unit: MeasurementUnit
     let isSelected: Bool
@@ -436,25 +415,24 @@ struct QuickUnitButton: View {
                 if isOriginal {
                     Text("original")
                         .font(.caption2)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                 } else {
                     Text(unit.displayName)
                         .font(.caption2)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                         .lineLimit(1)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.primaryAccent : Color.fillSecondary) // Using semantic colors
-            .foregroundColor(isSelected ? .white : Color.adaptiveText) // Using semantic colors
+            .background(isSelected ? Color.primaryAccent : Color.fillSecondary)
+            .foregroundColor(isSelected ? .white : Color.adaptiveText)
             .cornerRadius(8)
         }
         .disabled(isSelected)
     }
 }
 
-// MARK: - Improved Nutrition Preview Card
 struct ImprovedNutritionPreviewCard: View {
     let nutrition: NutritionInfo
     let quantity: String
@@ -483,41 +461,39 @@ struct ImprovedNutritionPreviewCard: View {
                 Text("Nutrition Preview")
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(Color.adaptiveText) // Using semantic color
+                    .foregroundColor(Color.adaptiveText)
                 
                 Spacer()
                 
                 if servingRatio != 1.0 {
                     Text("\(servingRatio.formattedNutrition)× serving")
                         .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(Color.fillSecondary) // Using semantic fill color
+                        .background(Color.fillSecondary)
                         .cornerRadius(4)
                 }
             }
             
             Text("For \(quantity) \(unit.displayName.lowercased())")
                 .font(.subheadline)
-                .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                .foregroundColor(Color.adaptiveSecondaryText)
             
-            // Main calories display
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Calories")
                         .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                     
                     Text("\(Int(nutrition.calories ?? 0))")
                         .font(.largeTitle)
                         .fontWeight(.bold)
-                        .foregroundColor(Color.nutritionOrange) // Using semantic color
+                        .foregroundColor(Color.nutritionOrange)
                 }
                 
                 Spacer()
                 
-                // Macros grid
                 VStack(alignment: .trailing, spacing: 8) {
                     HStack(spacing: 12) {
                        MacroDisplay(label: "Protein", value: nutrition.protein ?? 0, color: Color.nutritionRed)
@@ -535,12 +511,11 @@ struct ImprovedNutritionPreviewCard: View {
             }
         }
         .padding()
-        .background(Color.fillSecondary.opacity(0.5)) // Using semantic fill color
+        .background(Color.fillSecondary.opacity(0.5))
         .cornerRadius(12)
     }
 }
 
-// MARK: - Macro Display (Updated with semantic colors)
 struct MacroDisplay: View {
     let label: String
     let value: Double
@@ -550,7 +525,7 @@ struct MacroDisplay: View {
         VStack(spacing: 2) {
             Text(label)
                 .font(.caption2)
-                .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                .foregroundColor(Color.adaptiveSecondaryText)
             Text("\(Int(value))g")
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -559,7 +534,6 @@ struct MacroDisplay: View {
     }
 }
 
-// MARK: - Improved Unit Picker View
 struct ImprovedUnitPickerView: View {
     @Binding var selectedUnit: MeasurementUnit
     let availableUnits: [MeasurementUnit]
@@ -578,24 +552,22 @@ struct ImprovedUnitPickerView: View {
     var body: some View {
         NavigationView {
             List {
-                // Current selection
                 Section("Current Selection") {
                     HStack {
                         Text(selectedUnit.displayName)
                             .fontWeight(.medium)
-                            .foregroundColor(Color.adaptiveText) // Using semantic color
+                            .foregroundColor(Color.adaptiveText)
                         
                         Spacer()
                         
                         Text("(\(selectedUnit.abbreviation))")
-                            .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                            .foregroundColor(Color.adaptiveSecondaryText)
                         
                         Image(systemName: "checkmark")
-                            .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                            .foregroundColor(Color.primaryAccent)
                     }
                 }
                 
-                // Available units by category
                 ForEach(groupedUnits, id: \.0) { category, units in
                     Section(category.rawValue) {
                         ForEach(units, id: \.self) { unit in
@@ -606,16 +578,15 @@ struct ImprovedUnitPickerView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(unit.displayName)
                                             .font(.body)
-                                            .foregroundColor(Color.adaptiveText) // Using semantic color
+                                            .foregroundColor(Color.adaptiveText)
                                         
                                         Text(unit.abbreviation)
                                             .font(.caption)
-                                            .foregroundColor(Color.adaptiveSecondaryText) // Using semantic color
+                                            .foregroundColor(Color.adaptiveSecondaryText)
                                     }
                                     
                                     Spacer()
                                     
-                                    // Show conversion preview
                                     if unit != selectedUnit,
                                        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) {
                                         if let converted = UnitConverter.shared.convert(
@@ -625,13 +596,13 @@ struct ImprovedUnitPickerView: View {
                                         ) {
                                             Text("\(converted.formattedNutrition) \(unit.abbreviation)")
                                                 .font(.caption)
-                                                .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                                                .foregroundColor(Color.primaryAccent)
                                         }
                                     }
                                     
                                     if unit == selectedUnit {
                                         Image(systemName: "checkmark")
-                                            .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                                            .foregroundColor(Color.primaryAccent)
                                             .fontWeight(.semibold)
                                     }
                                 }
@@ -647,25 +618,8 @@ struct ImprovedUnitPickerView: View {
                 trailing: Button("Done") {
                     presentationMode.wrappedValue.dismiss()
                 }
-                .foregroundColor(Color.primaryAccent) // Using semantic accent color
+                .foregroundColor(Color.primaryAccent)
             )
         }
-    }
-}
-
-#Preview {
-    let sampleFood = Food(
-        name: "Grilled Chicken Breast",
-        nutritionInfo: NutritionInfo(calories: 165, protein: 31, carbohydrates: 0, fat: 3.6),
-        servingSize: 100,
-        servingSizeUnit: "g",
-        brand: "Generic"
-    )
-    
-    return QuantityEntryView(
-        food: sampleFood,
-        mealType: .lunch
-    ) { quantity, unit in
-        print("Saving \(quantity) \(unit.abbreviation)")
     }
 }

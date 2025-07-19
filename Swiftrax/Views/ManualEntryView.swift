@@ -1,7 +1,5 @@
 import SwiftUI
 
-// MARK: - Fix ManualEntryView State Management
-
 struct ManualEntryView: View {
     @State private var mealType: MealType = .breakfast
     @State private var foodName = ""
@@ -25,7 +23,6 @@ struct ManualEntryView: View {
    private let screenWidth = UIScreen.main.bounds.width
    private let screenHeight = UIScreen.main.bounds.height
     
-    // FIXED: Add focus states for proper keyboard management
     @FocusState private var focusedField: Field?
     
     enum Field {
@@ -90,7 +87,7 @@ struct ManualEntryView: View {
                             }
                         
                         Button(action: {
-                            focusedField = nil // Dismiss keyboard before showing picker
+                            focusedField = nil
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 showingUnitPicker = true
                             }
@@ -252,7 +249,6 @@ struct ManualEntryView: View {
             }
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
-            // FIXED: Add keyboard toolbar
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     HStack {
@@ -275,12 +271,10 @@ struct ManualEntryView: View {
                 }
             }
             .onAppear {
-                // FIXED: Use Task for state updates
                 Task { @MainActor in
                     validateForm()
                 }
             }
-            // FIXED: Add onChange for real-time validation without state modification warnings
             .onChange(of: foodName) { _ in validateFormAsync() }
             .onChange(of: servingSize) { _ in validateFormAsync() }
             .onChange(of: calories) { _ in validateFormAsync() }
@@ -333,14 +327,12 @@ struct ManualEntryView: View {
         }
     }
     
-    // MARK: - Helper Methods
-    
     private var isValid: Bool {
         let validation = validateFormData()
         return validation.isValid
     }
     
-    // FIXED: Async validation to prevent state modification warnings
+    // Validates form without triggering state modification warnings
     private func validateFormAsync() {
         Task { @MainActor in
             validateForm()
@@ -352,6 +344,7 @@ struct ManualEntryView: View {
         validationErrorMessage = validation.errorMessage
     }
     
+    // Returns validation status and error message for form data
     private func validateFormData() -> (isValid: Bool, errorMessage: String) {
         let trimmedName = foodName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
@@ -413,6 +406,7 @@ struct ManualEntryView: View {
         return (true, "")
     }
     
+    // Creates nutrition info object from form inputs
     private func createNutritionInfo() -> NutritionInfo {
         return NutritionInfo(
             calories: Double(calories),
@@ -425,7 +419,7 @@ struct ManualEntryView: View {
         )
     }
     
-    // FIXED: Enhanced save with proper async handling
+    // Saves food to database and adds to selected meal
     private func saveFood() {
         let validation = validateFormData()
         guard validation.isValid else {
@@ -434,11 +428,8 @@ struct ManualEntryView: View {
             return
         }
         
-        print("✅ Manual Entry: Starting save process...")
-        
         let savedFoodName = foodName.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedMealType = mealType
-        
         let nutritionInfo = createNutritionInfo()
         
         let food = Food(
@@ -450,12 +441,12 @@ struct ManualEntryView: View {
             isCustom: true
         )
         
-        print("📦 Created food: \(food.name) with \(food.nutritionInfo.calories ?? 0) calories per \(food.servingSize) \(food.servingSizeUnit)")
+        print("Saving custom food: \(food.name) to database")
         
         DatabaseManager.shared.saveFoodThreadSafe(food) { success in
             Task { @MainActor in
                 if success {
-                    print("💾 Food saved to database")
+                    print("Food saved to database")
                     
                     let entry = FoodEntry.create(
                         food: food,
@@ -464,29 +455,22 @@ struct ManualEntryView: View {
                         mealType: self.mealType
                     )
                     
-                    print("📝 Created food entry for \(entry.mealType.rawValue)")
-                    
                     DatabaseManager.shared.saveFoodEntryThreadSafe(entry) { entrySuccess in
                         Task { @MainActor in
                             if entrySuccess {
-                                print("💾 Food entry saved to database")
+                                print("Food entry saved to \(entry.mealType.rawValue)")
                                 
                                 NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
-                                print("📢 Posted notification to refresh dashboard")
                                 
                                 self.successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!"
                                 self.showingSuccessAlert = true
-                                
-                                print("✅ Manual Entry: Complete!")
                             } else {
-                                print("❌ Failed to save food entry")
                                 self.validationErrorMessage = "Failed to save food entry. Please try again."
                                 self.showingValidationError = true
                             }
                         }
                     }
                 } else {
-                    print("❌ Failed to save food")
                     self.validationErrorMessage = "Failed to save food. Please try again."
                     self.showingValidationError = true
                 }
@@ -494,6 +478,7 @@ struct ManualEntryView: View {
         }
     }
     
+    // Resets all form fields to empty state
     private func clearForm() {
         Task { @MainActor in
             foodName = ""
@@ -511,8 +496,6 @@ struct ManualEntryView: View {
             validateForm()
         }
     }
-    
-    // MARK: - Keyboard Navigation
     
     private func moveToNextField() {
         switch focusedField {
@@ -558,8 +541,6 @@ struct ManualEntryView: View {
     }
 }
 
-// MARK: - Enhanced Nutrition Input Row
-
 struct NutritionInputRow: View {
     let label: String
     @Binding var value: String
@@ -587,7 +568,6 @@ struct NutritionInputRow: View {
                             }
                         }
                     }
-
                     .multilineTextAlignment(.trailing)
                     .frame(width: 60)
                     .onSubmit {

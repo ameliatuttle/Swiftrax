@@ -12,7 +12,7 @@ class APIManager: ObservableObject {
         self.session = URLSession(configuration: config)
     }
     
-    // MARK: - Generic Network Request
+    // Generic network request handler with error handling
     private func performRequest<T: Codable>(
         url: URL,
         headers: [String: String] = [:],
@@ -21,7 +21,6 @@ class APIManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         
-        // Add headers
         for (key, value) in headers {
             request.addValue(value, forHTTPHeaderField: key)
         }
@@ -33,10 +32,9 @@ class APIManager: ObservableObject {
                 throw APIError.invalidResponse
             }
             
-            // Handle different status codes
             switch httpResponse.statusCode {
             case 200...299:
-                break // Success
+                break
             case 404:
                 throw APIError.productNotFound
             case 429:
@@ -63,19 +61,17 @@ class APIManager: ObservableObject {
         }
     }
     
-    // MARK: - Public API Methods
-    
-    /// Search by barcode using OpenFoodFacts
+    // Search for food by barcode using OpenFoodFacts API
     func searchByBarcode(_ barcode: String) async throws -> Food? {
         return try await OpenFoodFactsAPI.searchByBarcode(barcode, using: self)
     }
     
-    /// Search by text using OpenFoodFacts
+    // Search for foods by text query using OpenFoodFacts API
     func searchByText(_ query: String, pageSize: Int = 25) async throws -> [Food] {
         return try await OpenFoodFactsAPI.searchByText(query, pageSize: pageSize, using: self)
     }
     
-    // MARK: - Internal helper for API classes
+    // Internal helper method for API implementations
     internal func request<T: Codable>(
         url: URL,
         headers: [String: String] = [:],

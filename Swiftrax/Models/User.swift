@@ -9,6 +9,7 @@ struct User: Codable, Equatable {
         self.trackingPreferences = TrackingPreferences()
     }
     
+    // Custom equality comparison for User objects
     static func == (lhs: User, rhs: User) -> Bool {
         return lhs.trackingPreferences == rhs.trackingPreferences &&
                lhs.nutritionGoals == rhs.nutritionGoals &&

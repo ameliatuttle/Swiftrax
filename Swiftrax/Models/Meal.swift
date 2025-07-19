@@ -15,6 +15,7 @@ struct Meal: Codable, Identifiable {
         self.dateCreated = Date()
     }
     
+    // Calculate total nutrition for all items in this meal
     var totalNutrition: NutritionInfo {
         return items.reduce(NutritionInfo.zero) { result, item in
             let scaledNutrition = item.food.nutritionInfo.scaled(by: item.quantity / item.food.servingSize)

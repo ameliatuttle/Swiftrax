@@ -1,5 +1,6 @@
 import SwiftUI
 
+// Main view for creating new recipes with ingredients and nutrition tracking
 struct RecipeCreationView: View {
     @State private var recipeName = ""
     @State private var servings = "4"
@@ -15,7 +16,6 @@ struct RecipeCreationView: View {
     var body: some View {
         NavigationView {
             Form {
-                // Recipe Basic Info
                 Section("Recipe Information") {
                     TextField("Recipe name", text: $recipeName)
                         .autocapitalization(.words)
@@ -30,10 +30,8 @@ struct RecipeCreationView: View {
                     }
                 }
                 
-                // Ingredients Section
                 Section {
                     Button(action: {
-                        print("🔍 Add Ingredient button tapped")
                         showingAddIngredient = true
                     }) {
                         HStack {
@@ -61,7 +59,6 @@ struct RecipeCreationView: View {
                     }
                 }
                 
-                // Nutrition Preview
                 if !ingredients.isEmpty && isValid {
                     Section("Nutrition (per serving)") {
                         let nutrition = calculatedRecipe.nutritionPerServing
@@ -73,7 +70,6 @@ struct RecipeCreationView: View {
                     }
                 }
                 
-                // Save Button
                 Section {
                     Button(action: saveRecipe) {
                         Text("Create Recipe")
@@ -92,20 +88,16 @@ struct RecipeCreationView: View {
                 }
             )
         }
-        // 🆕 UPDATED: Use SearchLogView in recipe mode instead of custom search
         .sheet(isPresented: $showingAddIngredient) {
             SearchLogView(forRecipeIngredients: { food in
-                print("✅ Food selected for recipe: \(food.name)")
                 selectedFood = food
                 showingAddIngredient = false
                 
-                // Show quantity entry after a brief delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     showingQuantityEntry = true
                 }
             })
         }
-        // 🆕 NEW: Separate quantity entry sheet
         .sheet(isPresented: $showingQuantityEntry) {
             if let food = selectedFood {
                 RecipeQuantityEntryView(food: food) { quantity in
@@ -117,7 +109,6 @@ struct RecipeCreationView: View {
         }
         .alert("Recipe Created!", isPresented: $showingSuccessAlert) {
             Button("OK") {
-                // Close the recipe creation view
                 presentationMode.wrappedValue.dismiss()
             }
         } message: {
@@ -125,6 +116,7 @@ struct RecipeCreationView: View {
         }
     }
     
+    // Calculates recipe with current form values
     private var calculatedRecipe: Recipe {
         let servingCount = Int(servings) ?? 1
         return Recipe(
@@ -134,6 +126,7 @@ struct RecipeCreationView: View {
         )
     }
     
+    // Validates form is complete and ready to save
     private var isValid: Bool {
         !recipeName.trimmingCharacters(in: .whitespaces).isEmpty &&
         !servings.isEmpty &&
@@ -144,28 +137,21 @@ struct RecipeCreationView: View {
     
     private func addIngredient(_ ingredient: RecipeIngredient) {
         ingredients.append(ingredient)
-        print("✅ Added ingredient: \(ingredient.food.name) - \(ingredient.quantity) \(ingredient.food.servingSizeUnit)")
     }
     
     private func removeIngredient(_ ingredient: RecipeIngredient) {
         ingredients.removeAll { $0.id == ingredient.id }
-        print("🗑️ Removed ingredient: \(ingredient.food.name)")
     }
     
+    // Saves recipe to database and shows success message
     private func saveRecipe() {
-        guard isValid else {
-            print("❌ Recipe form is not valid")
-            return
-        }
+        guard isValid else { return }
         
         let recipe = calculatedRecipe
-        print("💾 Saving recipe: \(recipe.name) with \(recipe.ingredients.count) ingredients")
+        print("Saving recipe: \(recipe.name)")
         
-        // Save recipe to database
         DatabaseManager.shared.saveRecipeAsync(recipe) {
-            print("✅ Recipe saved successfully: \(recipe.name)")
-            
-            // Post notification to refresh recipes list
+            print("Recipe saved successfully")
             NotificationCenter.default.post(name: NSNotification.Name("RecipeCreated"), object: nil)
             
             successMessage = "\(recipe.name) has been created with \(recipe.ingredients.count) ingredients!"
@@ -174,7 +160,7 @@ struct RecipeCreationView: View {
     }
 }
 
-// MARK: - 🆕 NEW: Simplified Recipe Quantity Entry View
+// Dedicated view for entering ingredient quantities when adding to recipes
 struct RecipeQuantityEntryView: View {
     let food: Food
     let onQuantitySelected: (Double) -> Void
@@ -193,7 +179,6 @@ struct RecipeQuantityEntryView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                // Food Info Card
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
@@ -211,7 +196,6 @@ struct RecipeQuantityEntryView: View {
                         
                         Spacer()
                         
-                        // Source indicator
                         VStack(spacing: 2) {
                             Text(food.sourceEmoji)
                                 .font(.title2)
@@ -236,7 +220,6 @@ struct RecipeQuantityEntryView: View {
                             .fontWeight(.semibold)
                     }
                     
-                    // Nutrition summary
                     HStack(spacing: 16) {
                         NutritionChip(label: "Cal", value: food.nutritionInfo.calories ?? 0, color: .orange)
                         NutritionChip(label: "P", value: food.nutritionInfo.protein ?? 0, color: .red)
@@ -249,7 +232,6 @@ struct RecipeQuantityEntryView: View {
                 .background(Color.gray.opacity(0.05))
                 .cornerRadius(12)
                 
-                // Quantity Input
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Recipe Quantity")
                         .font(.headline)
@@ -266,7 +248,6 @@ struct RecipeQuantityEntryView: View {
                                     }
                                 }
                             }
-
                             .font(.title2)
                             .fontWeight(.medium)
                             .multilineTextAlignment(.center)
@@ -294,7 +275,6 @@ struct RecipeQuantityEntryView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                // Nutrition Preview for Recipe Quantity
                 if let quantityValue = Double(quantity), quantityValue > 0 {
                     VStack(spacing: 12) {
                         Text("Nutrition Contribution")
@@ -360,10 +340,8 @@ struct RecipeQuantityEntryView: View {
                 
                 Spacer()
                 
-                // Add Button
                 Button(action: {
                     if let quantityValue = Double(quantity), quantityValue > 0 {
-                        print("✅ Adding ingredient: \(food.name) - \(quantityValue) \(selectedUnit)")
                         onQuantitySelected(quantityValue)
                         presentationMode.wrappedValue.dismiss()
                     }
@@ -398,7 +376,6 @@ struct RecipeQuantityEntryView: View {
     }
 }
 
-// MARK: - Nutrition Chip for Recipe View
 struct NutritionChip: View {
     let label: String
     let value: Double
@@ -420,7 +397,6 @@ struct NutritionChip: View {
     }
 }
 
-// MARK: - Helper components (unchanged)
 struct IngredientRow: View {
     let ingredient: RecipeIngredient
     let onDelete: () -> Void
@@ -471,8 +447,4 @@ struct NutritionPreviewRow: View {
                 .foregroundColor(.secondary)
         }
     }
-}
-
-#Preview {
-    RecipeCreationView()
 }

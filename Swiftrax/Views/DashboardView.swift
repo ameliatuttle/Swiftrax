@@ -7,14 +7,12 @@ struct DashboardView: View {
        NavigationView {
            ScrollView {
                VStack(spacing: 16) {
-                   // Horizontal Nutrition Summary
                    HorizontalNutritionSummaryView(
                        totalNutrition: viewModel.dailyNutrition,
                        goals: viewModel.userSettings.nutritionGoals,
                        trackingPreferences: viewModel.userSettings.trackingPreferences
                    )
                    
-                   // Meal Sections
                    ForEach(MealType.allCases, id: \.self) { mealType in
                        MealSectionView(
                            mealType: mealType,
@@ -34,16 +32,13 @@ struct DashboardView: View {
            .navigationTitle("Dashboard")
            .navigationBarTitleDisplayMode(.inline)
            .refreshable {
-               // FIXED: Use Task to avoid state modification during refreshable
                await MainActor.run {
                    viewModel.loadEntries(for: Date())
                    viewModel.loadUserSettings()
                }
            }
            .onAppear {
-               Swift.print("📊 Dashboard: View appeared")
                viewModel.setupNotificationObserver()
-               // FIXED: Use Task to avoid state modification during onAppear
                Task { @MainActor in
                    viewModel.loadEntries(for: Date())
                    viewModel.loadUserSettings()
@@ -54,7 +49,6 @@ struct DashboardView: View {
    }
 }
 
-// MARK: - Horizontal Nutrition Summary
 struct HorizontalNutritionSummaryView: View {
     let totalNutrition: NutritionInfo
     let goals: NutritionGoals?
@@ -69,7 +63,7 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.calories ?? 0,
                         goal: goals?.calorieGoal,
                         unit: "kcal",
-                        color: Color.nutritionOrange // Updated to use semantic color
+                        color: Color.nutritionOrange
                     )
                 }
                 
@@ -79,7 +73,7 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.protein ?? 0,
                         goal: goals?.proteinGoal,
                         unit: "g",
-                        color: Color.nutritionRed // Updated to use semantic color
+                        color: Color.nutritionRed
                     )
                 }
                 
@@ -89,7 +83,7 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.carbohydrates ?? 0,
                         goal: goals?.carbGoal,
                         unit: "g",
-                        color: Color.nutritionBlue // Updated to use semantic color
+                        color: Color.nutritionBlue
                     )
                 }
                 
@@ -99,18 +93,17 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.fat ?? 0,
                         goal: goals?.fatGoal,
                         unit: "g",
-                        color: Color.nutritionPurple // Updated to use semantic color
+                        color: Color.nutritionPurple
                     )
                 }
                 
-                // Additional nutrients if tracking
                 if trackingPreferences.trackFiber {
                     NutritionMetricCard(
                         title: "Fiber",
                         value: totalNutrition.fiber ?? 0,
                         goal: goals?.fiberGoal,
                         unit: "g",
-                        color: Color.nutritionGreen // Updated to use semantic color
+                        color: Color.nutritionGreen
                     )
                 }
                 
@@ -120,7 +113,7 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.sugar ?? 0,
                         goal: goals?.sugarGoal,
                         unit: "g",
-                        color: Color.nutritionPink // Updated to use semantic color
+                        color: Color.nutritionPink
                     )
                 }
                 
@@ -130,7 +123,7 @@ struct HorizontalNutritionSummaryView: View {
                         value: totalNutrition.sodium ?? 0,
                         goal: goals?.sodiumGoal,
                         unit: "mg",
-                        color: Color.nutritionYellow // Updated to use semantic color
+                        color: Color.nutritionYellow
                     )
                 }
             }
@@ -139,7 +132,6 @@ struct HorizontalNutritionSummaryView: View {
     }
 }
 
-// MARK: - Nutrition Metric Card (Enhanced for Apple Guidelines)
 struct NutritionMetricCard: View {
     let title: String
     let value: Double
@@ -155,30 +147,26 @@ struct NutritionMetricCard: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            // Title
             Text(title)
                 .font(.caption)
                 .fontWeight(.medium)
-                .foregroundColor(Color.adaptiveSecondaryText) // Using semantic text color
+                .foregroundColor(Color.adaptiveSecondaryText)
             
-            // Value
             Text("\(Int(value))")
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundColor(color)
             
-            // Goal and progress
             if let goal = goal {
                 VStack(spacing: 4) {
                     Text("/ \(Int(goal)) \(unit)")
                         .font(.caption2)
-                        .foregroundColor(Color.adaptiveSecondaryText) // Using semantic text color
+                        .foregroundColor(Color.adaptiveSecondaryText)
                     
-                    // Progress bar
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
                             Rectangle()
-                                .fill(Color.fillSecondary) // Using semantic fill color
+                                .fill(Color.fillSecondary)
                                 .frame(height: 4)
                                 .cornerRadius(2)
                             
@@ -193,13 +181,13 @@ struct NutritionMetricCard: View {
             } else {
                 Text(unit)
                     .font(.caption2)
-                    .foregroundColor(Color.adaptiveSecondaryText) // Using semantic text color
+                    .foregroundColor(Color.adaptiveSecondaryText)
             }
         }
         .frame(width: 80)
         .padding(.vertical, 12)
         .padding(.horizontal, 8)
-        .background(Color.nutritionCardBackground) // Consistent white cards
+        .background(Color.nutritionCardBackground)
         .cornerRadius(12)
         .shadow(
             color: colorScheme == .dark ?
@@ -207,13 +195,12 @@ struct NutritionMetricCard: View {
                    Color.black.opacity(0.12),
             radius: 3, x: 0, y: 2
         )
-        .accessibilityElement(children: .combine) // Better accessibility
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title): \(Int(value)) \(unit)")
         .accessibilityValue(goal != nil ? "Goal: \(Int(goal!)) \(unit)" : "")
     }
 }
 
-// MARK: - Dashboard ViewModel (Unchanged)
 class DashboardViewModelMain: ObservableObject {
     @Published var foodEntries: [FoodEntry] = []
     @Published var userSettings = User()
@@ -222,25 +209,21 @@ class DashboardViewModelMain: ObservableObject {
     private let databaseManager = DatabaseManager.shared
     private var hasSetupObserver = false
     
-    // FIXED: Remove objectWillChange.send() calls that cause state modification warnings
+    // Calculates total nutrition from all food entries
     var dailyNutrition: NutritionInfo {
-        let nutrition = foodEntries.totalNutrition()
-        // REMOVED: Don't call objectWillChange.send() here - it causes state modification warnings
-        // The @Published property changes will automatically trigger UI updates
-        return nutrition
+        return foodEntries.totalNutrition()
     }
     
+    // Sets up notification observer to refresh data when entries are added
     func setupNotificationObserver() {
         guard !hasSetupObserver else { return }
         
-        Swift.print("🔔 Dashboard: Setting up notification observer")
         NotificationCenter.default.addObserver(
             forName: NSNotification.Name("FoodEntryAdded"),
             object: nil,
             queue: .main
         ) { _ in
-            Swift.print("📢 Dashboard: Received FoodEntryAdded notification, refreshing...")
-            // FIXED: Use Task to avoid state modification during notification handling
+            print("Dashboard refreshing after food entry added")
             Task { @MainActor in
                 self.loadEntries(for: Date())
             }
@@ -248,27 +231,15 @@ class DashboardViewModelMain: ObservableObject {
         hasSetupObserver = true
     }
     
-    // FIXED: Use @MainActor for proper state management
     @MainActor
     func loadEntries(for date: Date) {
-        Swift.print("📊 Dashboard: Loading entries for \(DateFormatters.shared.dayFormatter.string(from: date))")
         isLoading = true
         
-        // FIXED: Use thread-safe method consistently
         databaseManager.getFoodEntriesThreadSafe(for: date) { entries in
-            // FIXED: Ensure UI updates happen on main thread using Task
             Task { @MainActor in
-                Swift.print("📊 Dashboard: Found \(entries.count) entries in database")
-                for entry in entries {
-                    Swift.print("📊 Dashboard: Entry - \(entry.food.name) (\(entry.mealType.rawValue)) - \(entry.food.nutritionInfo.calories ?? 0) cal")
-                }
-                
+                print("Dashboard loaded \(entries.count) food entries")
                 self.foodEntries = entries
                 self.isLoading = false
-                Swift.print("📊 Dashboard: Updated UI with \(entries.count) entries")
-                
-                // REMOVED: Don't manually call objectWillChange.send() - SwiftUI handles this automatically
-                // when @Published properties change
             }
         }
     }
@@ -276,32 +247,24 @@ class DashboardViewModelMain: ObservableObject {
     @MainActor
     func loadUserSettings() {
         databaseManager.getUserSettingsAsync { user in
-            // FIXED: Ensure UI updates happen on main thread using Task
             Task { @MainActor in
                 self.userSettings = user
             }
         }
     }
     
-    // FIXED: Add thread-safe delete method with proper state management
+    // Deletes food entry from both UI and database
     @MainActor
     func deleteEntry(_ entry: FoodEntry) {
-        Swift.print("🗑️ Dashboard: Deleting entry: \(entry.food.name)")
-        
-        // Remove from local array immediately for UI responsiveness
         foodEntries.removeAll { $0.id == entry.id }
         
-        // Delete from database on background thread
         databaseManager.deleteEntryThreadSafe(entry) { success in
-            // FIXED: Use Task for proper main thread handling
             Task { @MainActor in
                 if success {
-                    Swift.print("✅ Dashboard: Entry deleted successfully")
-                    // Refresh to ensure consistency
+                    print("Food entry deleted successfully")
                     self.loadEntries(for: Date())
                 } else {
-                    Swift.print("❌ Dashboard: Failed to delete entry")
-                    // Reload to restore UI state
+                    print("Failed to delete food entry")
                     self.loadEntries(for: Date())
                 }
             }

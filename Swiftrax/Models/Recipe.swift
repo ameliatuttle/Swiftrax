@@ -1,10 +1,9 @@
 import Foundation
 
-// MARK: - Simplified Recipe Model
 struct Recipe: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
-    var servings: Int // Total servings the recipe makes
+    var servings: Int
     var ingredients: [RecipeIngredient]
     let dateCreated: Date
     let isCustom: Bool = true
@@ -67,7 +66,7 @@ struct Recipe: Identifiable, Codable, Equatable {
         )
     }
     
-    // Convert recipe to a Food object (for logging purposes)
+    // Convert recipe to a Food object for logging to meals
     func asFood() -> Food {
         var food = Food(
             name: name,
@@ -82,11 +81,10 @@ struct Recipe: Identifiable, Codable, Equatable {
     }
 }
 
-// MARK: - Recipe Ingredient Model
 struct RecipeIngredient: Identifiable, Codable, Equatable {
     let id: UUID
     let food: Food
-    var quantity: Double // Amount of this ingredient used
+    var quantity: Double
     
     init(food: Food, quantity: Double) {
         self.id = UUID()

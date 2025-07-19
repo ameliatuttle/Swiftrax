@@ -3,14 +3,10 @@ import SwiftUI
 struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModelMain()
     @State private var selectedTimeRange: TimeRange = .week
-   
-   private let screenWidth = UIScreen.main.bounds.width
-   private let screenHeight = UIScreen.main.bounds.height
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Time Range Picker
                 VStack(spacing: 12) {
                     Picker("Time Range", selection: $selectedTimeRange) {
                         ForEach(TimeRange.allCases, id: \.self) { range in
@@ -53,7 +49,6 @@ struct HistoryView: View {
                 } else {
                     ScrollView {
                         VStack(spacing: 20) {
-                            // Chart Title
                             HStack {
                                 Text("Daily Progress")
                                     .font(.title2)
@@ -61,7 +56,6 @@ struct HistoryView: View {
                                 
                                 Spacer()
                                 
-                                // Legend
                                 HStack(spacing: 16) {
                                     Label("Actual", systemImage: "circle.fill")
                                         .font(.caption)
@@ -74,13 +68,11 @@ struct HistoryView: View {
                             }
                             .padding(.horizontal)
                             
-                            // Bar Chart
                             DailyProgressBarChart(
                                 dailyData: viewModel.dailyData,
                                 userGoals: viewModel.userGoals
                             )
                             
-                            // Summary Stats
                             HistorySummaryView(
                                 dailyData: viewModel.dailyData,
                                 userGoals: viewModel.userGoals,
@@ -102,7 +94,6 @@ struct HistoryView: View {
     }
 }
 
-// MARK: - Daily Progress Bar Chart
 struct DailyProgressBarChart: View {
     let dailyData: [DailyNutritionData]
     let userGoals: NutritionGoals?
@@ -111,7 +102,6 @@ struct DailyProgressBarChart: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Chart
             GeometryReader { geometry in
                 let barWidth = max(20, (geometry.size.width - 32) / CGFloat(dailyData.count) - 8)
                 
@@ -138,7 +128,6 @@ struct DailyProgressBarChart: View {
     }
 }
 
-// MARK: - Daily Bar View
 struct DailyBarView: View {
     let data: DailyNutritionData
     let goals: NutritionGoals?
@@ -146,7 +135,7 @@ struct DailyBarView: View {
     let barWidth: CGFloat
     
     private var maxGoal: Double {
-        guard let goals = goals else { return 2500 } // Default fallback
+        guard let goals = goals else { return 2500 }
         return max(
             goals.calorieGoal ?? 2000,
             goals.proteinGoal ?? 150,
@@ -157,9 +146,7 @@ struct DailyBarView: View {
     
     var body: some View {
         VStack(spacing: 4) {
-            // Bars
             ZStack(alignment: .bottom) {
-                // Goal background bar (if goal exists)
                 if let calorieGoal = goals?.calorieGoal {
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
@@ -170,7 +157,6 @@ struct DailyBarView: View {
                         .cornerRadius(4)
                 }
                 
-                // Actual intake bar
                 Rectangle()
                     .fill(
                         LinearGradient(
@@ -185,7 +171,6 @@ struct DailyBarView: View {
                     )
                     .cornerRadius(4)
                 
-                // Goal line indicator
                 if let calorieGoal = goals?.calorieGoal {
                     Rectangle()
                         .fill(Color.orange)
@@ -197,7 +182,6 @@ struct DailyBarView: View {
                 }
             }
             
-            // Date label
             Text(formatDateForChart(data.date))
                 .font(.caption2)
                 .foregroundColor(.secondary)
@@ -212,7 +196,6 @@ struct DailyBarView: View {
     }
 }
 
-// MARK: - History Summary View
 struct HistorySummaryView: View {
     let dailyData: [DailyNutritionData]
     let userGoals: NutritionGoals?
@@ -223,11 +206,12 @@ struct HistorySummaryView: View {
         return dailyData.map { $0.totalCalories }.reduce(0, +) / Double(dailyData.count)
     }
     
+    // Calculates days within 20% of calorie goal
     private var daysOnTrack: Int {
         guard let calorieGoal = userGoals?.calorieGoal else { return 0 }
         return dailyData.filter { data in
             let percentage = data.totalCalories / calorieGoal
-            return percentage >= 0.8 && percentage <= 1.2 // Within 20% of goal
+            return percentage >= 0.8 && percentage <= 1.2
         }.count
     }
     
@@ -277,7 +261,6 @@ struct HistorySummaryView: View {
     }
 }
 
-// MARK: - Summary Card
 struct SummaryCard: View {
     let title: String
     let value: String
@@ -307,7 +290,6 @@ struct SummaryCard: View {
     }
 }
 
-// MARK: - Daily Nutrition Data Model
 struct DailyNutritionData: Identifiable {
     let id = UUID()
     let date: Date
@@ -318,7 +300,6 @@ struct DailyNutritionData: Identifiable {
     let entryCount: Int
 }
 
-// MARK: - Updated History ViewModel
 class HistoryViewModelMain: ObservableObject {
     @Published var dailyData: [DailyNutritionData] = []
     @Published var userGoals: NutritionGoals?
@@ -326,25 +307,23 @@ class HistoryViewModelMain: ObservableObject {
     
     private let databaseManager = DatabaseManager.shared
     
+    // Loads nutrition history for the specified time range
     func loadHistory(for timeRange: TimeRange) {
         isLoading = true
-        print("📊 HistoryViewModel: Starting to load history for \(timeRange.rawValue)")
+        print("Loading history for \(timeRange.rawValue)")
         
         let endDate = Date()
         let startDate = timeRange.startDate(from: endDate)
         
-        // FIXED: Use thread-safe database access
         databaseManager.getAllFoodEntriesThreadSafe(from: startDate, to: endDate) { allEntries in
-            print("📊 HistoryViewModel: Retrieved \(allEntries.count) total entries")
+            print("Retrieved \(allEntries.count) food entries for history")
             
-            // Process entries into daily data on background queue
             DispatchQueue.global(qos: .background).async {
                 var dailyDataArray: [DailyNutritionData] = []
                 var currentDate = startDate
                 let calendar = Calendar.current
                 
                 while currentDate <= endDate {
-                    // Filter entries for this date
                     let dayEntries = allEntries.filter { entry in
                         calendar.isDate(entry.dateLogged, inSameDayAs: currentDate)
                     }
@@ -362,17 +341,15 @@ class HistoryViewModelMain: ObservableObject {
                         )
                         
                         dailyDataArray.append(dailyData)
-                        print("📊 HistoryViewModel: \(currentDate): \(dayEntries.count) entries, \(Int(dailyData.totalCalories)) calories")
                     }
                     
                     currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate) ?? endDate
                 }
                 
-                // Update UI on main thread
                 DispatchQueue.main.async {
                     self.dailyData = dailyDataArray
                     self.isLoading = false
-                    print("📊 HistoryViewModel: Completed loading \(dailyDataArray.count) days of data")
+                    print("History loaded: \(dailyDataArray.count) days of data")
                 }
             }
         }
@@ -385,7 +362,6 @@ class HistoryViewModelMain: ObservableObject {
     }
 }
 
-// MARK: - Time Range (unchanged)
 enum TimeRange: String, CaseIterable {
     case week = "Week"
     case month = "Month"
@@ -402,8 +378,4 @@ enum TimeRange: String, CaseIterable {
             return calendar.date(byAdding: .month, value: -3, to: endDate) ?? endDate
         }
     }
-}
-
-#Preview {
-    HistoryView()
 }

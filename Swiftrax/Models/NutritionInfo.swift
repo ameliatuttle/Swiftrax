@@ -35,6 +35,7 @@ struct NutritionInfo: Codable {
     
     static let zero = NutritionInfo()
     
+    // Add two nutrition info objects together
     static func + (lhs: NutritionInfo, rhs: NutritionInfo) -> NutritionInfo {
         return NutritionInfo(
             calories: (lhs.calories ?? 0) + (rhs.calories ?? 0),
@@ -54,6 +55,7 @@ struct NutritionInfo: Codable {
         )
     }
     
+    // Scale all nutrition values by a factor (for portion calculations)
     func scaled(by factor: Double) -> NutritionInfo {
         let scaledCalories = calories.map { $0 * factor }
         let scaledProtein = protein.map { $0 * factor }

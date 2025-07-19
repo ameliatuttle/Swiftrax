@@ -1,15 +1,14 @@
 import Foundation
 
-// MARK: - Unit Conversion System
 enum MeasurementUnit: String, CaseIterable, Codable {
-    // Weight
+    // Weight units
     case grams = "g"
     case kilograms = "kg"
     case ounces = "oz"
     case pounds = "lb"
     case milligrams = "mg"
     
-    // Volume
+    // Volume units
     case milliliters = "ml"
     case liters = "L"
     case fluidOunces = "fl oz"
@@ -20,7 +19,7 @@ enum MeasurementUnit: String, CaseIterable, Codable {
     case quarts = "qt"
     case gallons = "gal"
     
-    // Count/Serving
+    // Count/Serving units
     case pieces = "piece"
     case servings = "serving"
     case slices = "slice"
@@ -81,20 +80,17 @@ enum UnitCategory: String, CaseIterable {
     }
 }
 
-// MARK: - Unit Converter
 class UnitConverter {
     static let shared = UnitConverter()
     
     private init() {}
     
-    // Convert from one unit to another
+    // Convert value from one unit to another within the same category
     func convert(value: Double, from fromUnit: MeasurementUnit, to toUnit: MeasurementUnit) -> Double? {
-        // Same unit, no conversion needed
         if fromUnit == toUnit {
             return value
         }
         
-        // Only convert within the same category
         guard fromUnit.category == toUnit.category else {
             return nil
         }
@@ -105,14 +101,12 @@ class UnitConverter {
         case .volume:
             return convertVolume(value: value, from: fromUnit, to: toUnit)
         case .count:
-            // Count units don't convert between each other
             return nil
         }
     }
     
-    // MARK: - Weight Conversions
+    // Convert weight units using grams as base unit
     private func convertWeight(value: Double, from fromUnit: MeasurementUnit, to toUnit: MeasurementUnit) -> Double {
-        // Convert to grams first (base unit)
         let grams: Double
         switch fromUnit {
         case .grams:
@@ -126,10 +120,9 @@ class UnitConverter {
         case .milligrams:
             grams = value / 1000
         default:
-            return value // Shouldn't happen
+            return value
         }
         
-        // Convert from grams to target unit
         switch toUnit {
         case .grams:
             return grams
@@ -142,13 +135,12 @@ class UnitConverter {
         case .milligrams:
             return grams * 1000
         default:
-            return value // Shouldn't happen
+            return value
         }
     }
     
-    // MARK: - Volume Conversions
+    // Convert volume units using milliliters as base unit
     private func convertVolume(value: Double, from fromUnit: MeasurementUnit, to toUnit: MeasurementUnit) -> Double {
-        // Convert to milliliters first (base unit)
         let milliliters: Double
         switch fromUnit {
         case .milliliters:
@@ -170,10 +162,9 @@ class UnitConverter {
         case .gallons:
             milliliters = value * 3785.41
         default:
-            return value // Shouldn't happen
+            return value
         }
         
-        // Convert from milliliters to target unit
         switch toUnit {
         case .milliliters:
             return milliliters
@@ -194,58 +185,50 @@ class UnitConverter {
         case .gallons:
             return milliliters / 3785.41
         default:
-            return value // Shouldn't happen
+            return value
         }
     }
     
-    // Get compatible units for conversion
     func getCompatibleUnits(for unit: MeasurementUnit) -> [MeasurementUnit] {
         return unit.category.units
     }
     
-    // Get suggested units based on food type and serving size
+    // Get contextually appropriate units based on food characteristics
     func getSuggestedUnits(for food: Food) -> [MeasurementUnit] {
         let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
         var suggestedUnits = getCompatibleUnits(for: originalUnit)
         
-        // Add some common conversions based on serving size
         if originalUnit.category == .weight {
             if food.servingSize >= 1000 {
-                // Large servings - suggest kg, lb
                 suggestedUnits = [.grams, .kilograms, .ounces, .pounds]
             } else if food.servingSize <= 10 {
-                // Small servings - suggest mg, g, oz
                 suggestedUnits = [.milligrams, .grams, .ounces]
             } else {
-                // Medium servings - suggest g, oz
                 suggestedUnits = [.grams, .ounces, .pounds]
             }
         } else if originalUnit.category == .volume {
             if food.servingSize >= 1000 {
-                // Large volumes - suggest L, cups
                 suggestedUnits = [.milliliters, .liters, .cups, .fluidOunces]
             } else {
-                // Small volumes - suggest ml, cups, tbsp
                 suggestedUnits = [.milliliters, .cups, .tablespoons, .fluidOunces]
             }
         }
         
-        // Always include the original unit first
         suggestedUnits.removeAll { $0 == originalUnit }
         suggestedUnits.insert(originalUnit, at: 0)
         
-        return Array(suggestedUnits.prefix(6)) // Limit to 6 options
+        return Array(suggestedUnits.prefix(6))
     }
     
-    // Convert nutrition values based on unit conversion
+    // Scale nutrition values based on quantity change
     func convertNutrition(nutrition: NutritionInfo, originalAmount: Double, newAmount: Double) -> NutritionInfo {
         let ratio = newAmount / originalAmount
         return nutrition.scaled(by: ratio)
     }
 }
 
-// MARK: - Unit Conversion Helper for UI
 struct UnitConversionHelper {
+    // Format quantity for display with appropriate decimal places
     static func formatQuantity(_ quantity: Double) -> String {
         if quantity.truncatingRemainder(dividingBy: 1) == 0 {
             return String(Int(quantity))

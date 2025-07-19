@@ -22,6 +22,7 @@ enum SQLiteError: Error {
 }
 
 extension SQLiteError {
+    // Extracts error message from SQLite database pointer
     static func errorMessage(db: OpaquePointer?) -> String {
         if let errorPointer = sqlite3_errmsg(db) {
             return String(cString: errorPointer)

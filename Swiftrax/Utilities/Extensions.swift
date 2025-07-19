@@ -379,3 +379,139 @@ extension View {
                                         to: nil, from: nil, for: nil)
     }
 }
+
+extension Food {
+    var measurementUnit: MeasurementUnit {
+        return MeasurementUnit(rawValue: servingSizeUnit) ?? .grams
+    }
+    
+    // Create a copy of this food with converted serving size
+    func withConvertedServing(to newUnit: MeasurementUnit) -> Food? {
+        guard let convertedSize = UnitConverter.shared.convert(
+            value: servingSize,
+            from: measurementUnit,
+            to: newUnit
+        ) else { return nil }
+        
+        var newFood = self
+        newFood.servingSize = convertedSize
+        newFood.servingSizeUnit = newUnit.abbreviation
+        return newFood
+    }
+    
+    // Calculate nutrition for a specific quantity and unit
+    func nutritionFor(quantity: Double, unit: MeasurementUnit) -> NutritionInfo {
+        let originalUnit = measurementUnit
+        
+        let convertedQuantity: Double
+        if let converted = UnitConverter.shared.convert(value: quantity, from: unit, to: originalUnit) {
+            convertedQuantity = converted
+        } else {
+            convertedQuantity = quantity
+        }
+        
+        let scaleFactor = convertedQuantity / servingSize
+        return nutritionInfo.scaled(by: scaleFactor)
+    }
+    
+    var compatibleUnits: [MeasurementUnit] {
+        return UnitConverter.shared.getCompatibleUnits(for: measurementUnit)
+    }
+    
+    var suggestedUnits: [MeasurementUnit] {
+        return UnitConverter.shared.getSuggestedUnits(for: self)
+    }
+   
+   // Custom decoder to handle legacy data compatibility
+   init(from decoder: Decoder) throws {
+       let container = try decoder.container(keyedBy: CodingKeys.self)
+       
+       id = try container.decode(UUID.self, forKey: .id)
+       name = try container.decode(String.self, forKey: .name)
+       barcode = try container.decodeIfPresent(String.self, forKey: .barcode)
+       nutritionInfo = try container.decode(NutritionInfo.self, forKey: .nutritionInfo)
+       servingSize = try container.decode(Double.self, forKey: .servingSize)
+       servingSizeUnit = try container.decode(String.self, forKey: .servingSizeUnit)
+       brand = try container.decodeIfPresent(String.self, forKey: .brand)
+       isCustom = try container.decode(Bool.self, forKey: .isCustom)
+       dateAdded = try container.decode(Date.self, forKey: .dateAdded)
+       recipeId = try container.decodeIfPresent(UUID.self, forKey: .recipeId)
+       
+       // Default values for fields that might not exist in legacy data
+       source = try container.decodeIfPresent(String.self, forKey: .source) ?? "manual"
+       lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
+   }
+
+   enum CodingKeys: String, CodingKey {
+       case id, name, barcode, nutritionInfo, servingSize, servingSizeUnit
+       case brand, isCustom, dateAdded, recipeId, source, lastUpdated
+   }
+}
+
+extension FoodEntry {
+    // Calculate nutrition with unit conversion
+    func nutritionForQuantity(_ quantity: Double, unit: MeasurementUnit) -> NutritionInfo {
+        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        
+        let convertedQuantity: Double
+        if let converted = UnitConverter.shared.convert(value: quantity, from: unit, to: originalUnit) {
+            convertedQuantity = converted
+        } else {
+            convertedQuantity = quantity
+        }
+        
+        let scaleFactor = convertedQuantity / food.servingSize
+        return food.nutritionInfo.scaled(by: scaleFactor)
+    }
+    
+    // Create food entry with unit conversion handling
+    static func create(food: Food, quantity: Double, unit: MeasurementUnit, mealType: MealType) -> FoodEntry {
+        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        
+        let storageQuantity: Double
+        if let converted = UnitConverter.shared.convert(value: quantity, from: unit, to: originalUnit) {
+            storageQuantity = converted
+        } else {
+            storageQuantity = quantity
+        }
+        
+        return FoodEntry(
+            food: food,
+            quantity: storageQuantity,
+            mealType: mealType
+        )
+    }
+    
+    // Convert stored quantity to display in specified unit
+    func getDisplayQuantity(in unit: MeasurementUnit) -> Double? {
+        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        
+        return UnitConverter.shared.convert(
+            value: quantity,
+            from: originalUnit,
+            to: unit
+        )
+    }
+    
+    // Get formatted text for quantity display
+    func getDisplayText(in unit: MeasurementUnit) -> String {
+        guard let displayQuantity = getDisplayQuantity(in: unit) else {
+            return "\(quantity.formattedNutrition) \(food.servingSizeUnit)"
+        }
+        
+        return UnitConversionHelper.getDisplayText(quantity: displayQuantity, unit: unit)
+    }
+    
+    func canConvertTo(_ unit: MeasurementUnit) -> Bool {
+        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        return UnitConversionHelper.isValidConversion(from: originalUnit, to: unit)
+    }
+    
+    var originalUnit: MeasurementUnit {
+        return MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+    }
+    
+    var compatibleUnits: [MeasurementUnit] {
+        return originalUnit.category.units
+    }
+}

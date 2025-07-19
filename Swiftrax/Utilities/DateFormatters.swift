@@ -1,5 +1,6 @@
 import Foundation
 
+// Singleton providing commonly used date formatters
 class DateFormatters {
     static let shared = DateFormatters()
     
@@ -39,6 +40,7 @@ extension Date {
         return Calendar.current.startOfDay(for: self)
     }
     
+    // Returns the last second of the day (23:59:59)
     var endOfDay: Date {
         var components = DateComponents()
         components.day = 1

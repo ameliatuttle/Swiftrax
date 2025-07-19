@@ -1,12 +1,13 @@
 import SwiftUI
 
+// Main view for displaying and managing recipes
 struct RecipesView: View {
     @StateObject private var viewModel = RecipesViewModel()
     @State private var showingCreateRecipe = false
     @State private var searchText = ""
    
-   private let screenWidth = UIScreen.main.bounds.width
-   private let screenHeight = UIScreen.main.bounds.height
+    private let screenWidth = UIScreen.main.bounds.width
+    private let screenHeight = UIScreen.main.bounds.height
     
     var filteredRecipes: [Recipe] {
         if searchText.isEmpty {
@@ -21,7 +22,6 @@ struct RecipesView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Search Bar
                 if !viewModel.recipes.isEmpty {
                     HStack {
                         Image(systemName: "magnifyingglass")
@@ -33,7 +33,6 @@ struct RecipesView: View {
                     .padding()
                 }
                 
-                // Content
                 if viewModel.isLoading {
                     VStack {
                         Spacer()
@@ -72,11 +71,6 @@ struct RecipesView: View {
             .navigationTitle("Recipes")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
-                leading: Button("Fix") {
-                    print("🔧 Fixing recipe schema...")
-                    DatabaseManager.shared.fixRecipeSchema()
-                    viewModel.loadRecipes()
-                },
                 trailing: Button(action: {
                     showingCreateRecipe = true
                 }) {
@@ -84,9 +78,6 @@ struct RecipesView: View {
                 }
             )
             .onAppear {
-                print("📱 RecipesView appeared")
-                // Test database connection
-                DatabaseManager.shared.testDatabaseConnection()
                 viewModel.loadRecipes()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -95,13 +86,12 @@ struct RecipesView: View {
             RecipeCreationView()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("RecipeCreated"))) { _ in
-            print("📖 Received RecipeCreated notification - refreshing recipes")
             viewModel.loadRecipes()
         }
     }
 }
 
-// MARK: - Empty Recipes View
+// Empty state view shown when no recipes exist
 struct EmptyRecipesView: View {
     let onCreateRecipe: () -> Void
     
@@ -142,7 +132,7 @@ struct EmptyRecipesView: View {
     }
 }
 
-// MARK: - Recipe Row
+// Individual recipe row in the list
 struct RecipeRow: View {
     let recipe: Recipe
     let onDelete: () -> Void
@@ -199,7 +189,7 @@ struct RecipeRow: View {
     }
 }
 
-// MARK: - Recipe Detail View
+// Detailed view of a single recipe
 struct RecipeDetailView: View {
     let recipe: Recipe
     @State private var showingLogOptions = false
@@ -209,7 +199,6 @@ struct RecipeDetailView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Recipe Header
                     VStack(alignment: .leading, spacing: 8) {
                         Text(recipe.name)
                             .font(.largeTitle)
@@ -221,7 +210,6 @@ struct RecipeDetailView: View {
                     }
                     .padding(.horizontal)
                     
-                    // Nutrition Per Serving
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Nutrition (per serving)")
                             .font(.headline)
@@ -239,7 +227,6 @@ struct RecipeDetailView: View {
                         .padding(.horizontal)
                     }
                     
-                    // Ingredients
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Ingredients")
                             .font(.headline)
@@ -253,7 +240,6 @@ struct RecipeDetailView: View {
                         .padding(.horizontal)
                     }
                     
-                    // Log Recipe Button
                     Button(action: {
                         showingLogOptions = true
                     }) {
@@ -287,7 +273,6 @@ struct RecipeDetailView: View {
     }
 }
 
-// MARK: - Nutrition Card
 struct NutritionCard: View {
     let title: String
     let value: Double
@@ -316,7 +301,6 @@ struct NutritionCard: View {
     }
 }
 
-// MARK: - Recipe Ingredient Detail Row
 struct RecipeIngredientDetailRow: View {
     let ingredient: RecipeIngredient
     
@@ -338,7 +322,7 @@ struct RecipeIngredientDetailRow: View {
     }
 }
 
-// MARK: - Log Recipe View
+// View for logging a recipe to a meal
 struct LogRecipeView: View {
     let recipe: Recipe
     @State private var selectedMealType: MealType = .lunch
@@ -350,7 +334,6 @@ struct LogRecipeView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                // Recipe Info
                 VStack(alignment: .leading, spacing: 8) {
                     Text(recipe.name)
                         .font(.title2)
@@ -362,7 +345,6 @@ struct LogRecipeView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
-                // Meal Type Selection
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Add to Meal")
                         .font(.headline)
@@ -376,7 +358,6 @@ struct LogRecipeView: View {
                     .pickerStyle(SegmentedPickerStyle())
                 }
                 
-                // Servings Selection
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Servings")
                         .font(.headline)
@@ -392,7 +373,6 @@ struct LogRecipeView: View {
                                     }
                                 }
                             }
-
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                         
                         Text("servings")
@@ -400,7 +380,6 @@ struct LogRecipeView: View {
                     }
                 }
                 
-                // Nutrition Preview
                 if let servingCount = Double(servings), servingCount > 0 {
                     VStack {
                         Text("Nutrition (for \(servings) serving\(servingCount == 1 ? "" : "s"))")
@@ -448,58 +427,47 @@ struct LogRecipeView: View {
         }
     }
     
+    // Saves recipe as a food entry to the selected meal
     private func logRecipe() {
         guard let servingCount = Double(servings), servingCount > 0 else { return }
         
-        // Create a Food object from the recipe
         let recipeAsFood = recipe.asFood()
         
-        // Create food entry
         let entry = FoodEntry(
             food: recipeAsFood,
             quantity: servingCount,
             mealType: selectedMealType
         )
         
-        // Save to database
         DatabaseManager.shared.saveFoodEntryAsync(entry) {
-            print("✅ Recipe logged: \(servingCount) servings of \(recipe.name)")
-            
-            // Post notification to refresh dashboard
+            print("Recipe logged to meal")
             NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
-            
             showingSuccessAlert = true
         }
     }
 }
 
-// MARK: - Recipes ViewModel
+// Manages recipe data and database operations
 class RecipesViewModel: ObservableObject {
     @Published var recipes: [Recipe] = []
     @Published var isLoading = false
     
+    // Loads all recipes from database
     func loadRecipes() {
         isLoading = true
-        print("📖 RecipesViewModel: Starting to load recipes...")
+        print("Loading recipes from database")
         DatabaseManager.shared.getRecipesAsync { recipes in
-            print("📖 RecipesViewModel: Loaded \(recipes.count) recipes from database")
-            for recipe in recipes {
-                print("📖 Recipe: \(recipe.name) with \(recipe.ingredients.count) ingredients")
-            }
+            print("Loaded \(recipes.count) recipes")
             self.recipes = recipes.sorted { $0.dateCreated > $1.dateCreated }
             self.isLoading = false
         }
     }
     
+    // Deletes recipe from local list and database
     func deleteRecipe(_ recipe: Recipe) {
         recipes.removeAll { $0.id == recipe.id }
         DatabaseManager.shared.deleteRecipeAsync(recipe) {
-            print("🗑️ Recipe deleted: \(recipe.name)")
+            print("Recipe deleted from database")
         }
     }
-   
-}
-
-#Preview {
-    RecipesView()
 }

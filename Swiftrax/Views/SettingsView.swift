@@ -12,7 +12,7 @@ struct SettingsView: View {
     @State private var basicFoodsCount = 0
     @AppStorage("app_theme") private var selectedTheme: String = AppTheme.system.rawValue
     
-    // FIXED: Add screen size properties
+    // Screen size properties
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
     
@@ -52,7 +52,6 @@ struct SettingsView: View {
                                 .tag(theme.rawValue)
                         }
                     }
-                    // FIXED: Prevent navigation reset by using Task and avoiding immediate state changes
                     .onChange(of: selectedTheme) { newTheme in
                         print("🎨 Settings: Theme changed to \(newTheme)")
                         
@@ -73,7 +72,6 @@ struct SettingsView: View {
                     }
                 }
                 
-                // 🆕 NEW: Database Management Section
                 Section("Database Management") {
                     // Database Status
                     VStack(alignment: .leading, spacing: 8) {
@@ -170,13 +168,12 @@ struct SettingsView: View {
                 loadSettings()
                 loadDatabaseStatus()
                 
-                // FIXED: Only sync theme if it's different to prevent unnecessary updates
+                // Only sync theme if it's different to prevent unnecessary updates
                 if selectedTheme != userSettings.theme.rawValue {
                     selectedTheme = userSettings.theme.rawValue
                     print("🎨 Settings: Synced theme to \(selectedTheme)")
                 }
             }
-            // FIXED: Add manual save triggers for specific changes instead of automatic onChange
             .onChange(of: userSettings.trackingPreferences.trackCalories) { _ in
                 Task { await saveSettingsAsync() }
             }
@@ -237,8 +234,6 @@ struct SettingsView: View {
         .navigationViewStyle(StackNavigationViewStyle())
     }
     
-    // MARK: - 🆕 NEW: Database Management Methods
-    
     private func loadDatabaseStatus() {
         BasicFoodsSeeder.shared.checkBasicFoodsStatus { basicCount, duplicateGroups, totalDuplicates in
             Task { @MainActor in
@@ -276,14 +271,12 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Existing Methods
-    
     private func loadSettings() {
         userSettings = DatabaseManager.shared.getUserSettings()
         print("⚙️ Settings: Loaded user settings with theme: \(userSettings.theme.rawValue)")
     }
     
-    // FIXED: Make saveSettings async to prevent blocking UI and navigation
+    // Make saveSettings async to prevent blocking UI and navigation
     private func saveSettingsAsync() async {
         print("⚙️ Settings: Saving user settings with theme: \(userSettings.theme.rawValue)")
         
@@ -327,7 +320,6 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Nutrition Goals View (unchanged)
 struct NutritionGoalsView: View {
     @Binding var userSettings: User
     
@@ -440,7 +432,6 @@ struct NutritionGoalsView: View {
     }
 }
 
-// MARK: - Goal Input View (unchanged)
 struct GoalInputView: View {
     let title: String
     @Binding var value: String
@@ -471,8 +462,4 @@ struct GoalInputView: View {
                 .font(.caption)
         }
     }
-}
-
-#Preview {
-    SettingsView()
 }

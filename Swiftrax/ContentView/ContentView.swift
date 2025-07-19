@@ -4,14 +4,13 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @AppStorage("app_theme") private var selectedTheme: String = AppTheme.system.rawValue
     
+    // Convert theme string to AppTheme enum
     private var currentTheme: AppTheme {
         AppTheme(rawValue: selectedTheme) ?? .system
     }
     
-    private let screenWidth = UIScreen.main.bounds.width
-    private let screenHeight = UIScreen.main.bounds.height
-    
     var body: some View {
+        // Main tab navigation container
         TabView(selection: $selectedTab) {
             DashboardView()
                 .tabItem {
@@ -56,69 +55,26 @@ struct ContentView: View {
                 .tag(5)
         }
         .background(Color.appBackground)
-        .frame(width: screenWidth, height: screenHeight)
-        .accentColor(Color.primaryAccent)
-        // FIXED: Use id() to prevent complete navigation reset on theme changes
-        //.id("ContentView-\(currentTheme.rawValue)")
-        // FIXED: Apply color scheme more smoothly
+        // Apply selected theme (light/dark/system)
         .preferredColorScheme(currentTheme.colorScheme)
         .onAppear {
-            print("🚀 APP STARTED - Theme: \(currentTheme.displayName)")
-            print("🎨 Color scheme override: \(currentTheme == .system ? "NONE (system)" : currentTheme.rawValue)")
-            
-            // Load user theme preference immediately
+            print("App started")
             loadUserTheme()
-            
-            // Test the enhanced database functionality
+            // Initialize database connection
             DatabaseManager.shared.testDatabaseConnection()
-            DatabaseManager.shared.debugBarcodeLookup("0074401704324")
-            
-            // Print available units for debugging
-            print("📏 Available measurement units: \(MeasurementUnit.allCases.map { $0.displayName }.joined(separator: ", "))")
         }
-        // FIXED: Add smooth animation for theme transitions
         .animation(.easeInOut(duration: 0.3), value: currentTheme.rawValue)
     }
     
+    // Loads user theme preference from database and applies it
     private func loadUserTheme() {
-        // Load user settings and apply theme
         DatabaseManager.shared.getUserSettingsAsync { user in
             let themeToApply = user.theme.rawValue
             if selectedTheme != themeToApply {
-                // FIXED: Use withAnimation to smooth the theme change and prevent navigation disruption
                 withAnimation(.easeInOut(duration: 0.3)) {
                     selectedTheme = themeToApply
                 }
-                print("🎨 Updated theme from user settings: \(themeToApply)")
             }
         }
     }
-    
-    private func testBarcodeAPICall() {
-        Task {
-            do {
-                print("🧪 Testing OpenFoodFacts API with barcode: 0074401704324")
-                if let food = try await APIManager.shared.searchByBarcode("0074401704324") {
-                    print("🧪 ✅ API Test Success: \(food.name)")
-                    print("🧪 Calories: \(food.nutritionInfo.calories ?? 0)")
-                    print("🧪 Brand: \(food.brand ?? "No brand")")
-                } else {
-                    print("🧪 ❌ API Test: No food found")
-                }
-            } catch {
-                print("🧪 ❌ API Test Error: \(error)")
-            }
-        }
-    }
-}
-
-// MARK: - Helper Extension for Conditional View Modifiers
-extension View {
-    func apply<V: View>(@ViewBuilder _ block: (Self) -> V) -> V {
-        block(self)
-    }
-}
-
-#Preview {
-    ContentView()
 }

@@ -362,3 +362,20 @@ enum NutritionMetric {
     case sugar
     case sodium
 }
+
+extension DatabaseManager {
+    func searchFoodsAsync(query: String) async -> [Food] {
+        await withCheckedContinuation { continuation in
+            self.searchFoodsWithFuzzyMatching(query: query) { results in
+                continuation.resume(returning: results)
+            }
+        }
+    }
+}
+
+extension View {
+    func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+    }
+}

@@ -317,7 +317,7 @@ struct SettingsView: View {
         
         // Trigger basic foods seeding after clearing
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            BasicFoodsSeeder.shared.seedBasicFoodsIfNeeded()
+            //BasicFoodsSeeder.shared.seedBasicFoodsIfNeeded()
             
             // Refresh status after seeding
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -454,6 +454,15 @@ struct GoalInputView: View {
             
             TextField("Goal", text: $value)
                 .keyboardType(.decimalPad)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            hideKeyboard()
+                        }
+                    }
+                }
+
                 .multilineTextAlignment(.trailing)
                 .frame(width: 80)
             

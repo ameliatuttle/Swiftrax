@@ -43,29 +43,43 @@ struct QuantityEntryView: View {
     }
     
     // Smart default quantities for different units
-    private func getSmartDefaultQuantity(for unit: MeasurementUnit) -> String {
-        switch unit.category {
-        case .weight:
-            if unit == .grams {
-                return "100"
-            } else if unit == .ounces {
-                return "3.5"
-            } else if unit == .pounds {
-                return "0.25"
-            }
-        case .volume:
-            if unit == .cups {
-                return "1"
-            } else if unit == .tablespoons {
-                return "2"
-            } else if unit == .milliliters {
-                return "250"
-            }
-        case .count:
-            return "1"
-        }
-        return food.servingSize.formattedNutrition
-    }
+   private func getSmartDefaultQuantity(for unit: MeasurementUnit) -> String {
+       // Always return the food’s actual serving size if the unit matches the original
+       if unit == originalUnit {
+           return food.servingSize.formattedNutrition
+       }
+
+       // Only use these if user switches units
+       switch unit.category {
+       case .weight:
+           if unit == .grams {
+               return "100"
+           } else if unit == .ounces {
+               return "3.5"
+           } else if unit == .pounds {
+               return "0.25"
+           }
+       case .volume:
+           if unit == .cups {
+               return "1"
+           } else if unit == .tablespoons {
+               return "2"
+           } else if unit == .milliliters {
+               return "250"
+           }
+       case .count:
+           return "1"
+       }
+
+       // Fallback to original serving size
+       return food.servingSize.formattedNutrition
+   }
+   
+   var numberOfServings: Double? {
+       guard food.servingSize > 0, let qty = Double(quantity) else { return nil }
+       let ratio = qty / food.servingSize
+       return round(ratio * 100) / 100  // round to 2 decimals
+   }
     
     var body: some View {
         NavigationView {
@@ -73,7 +87,13 @@ struct QuantityEntryView: View {
                 VStack(spacing: 24) {
                     // Food Information Card
                     ImprovedFoodInfoCard(food: food)
-                    
+                   
+                   if let servings = numberOfServings {
+                      Text("≈ \(String(format: "%.2f", servings)) servings")
+                           .font(.subheadline)
+                           .foregroundColor(.secondary)
+                   }
+                   
                     // Quantity Input Section
                     ImprovedQuantityInputSection(
                         quantity: $quantity,
@@ -83,6 +103,18 @@ struct QuantityEntryView: View {
                         originalUnit: originalUnit,
                         onUnitChanged: { unit in handleUnitChange(to: unit) }
                     )
+                   
+                   Slider(
+                       value: Binding(
+                           get: { Double(quantity) ?? 0 },
+                           set: { quantity = UnitConversionHelper.formatQuantity($0) }
+                       ),
+                       in: 0...500,
+                       step: 0.5
+                   )
+                   .accentColor(.blue)
+                   .padding(.horizontal)
+                   
                     
                    // Unit Conversion Display
                    if selectedUnit != originalUnit {
@@ -307,6 +339,15 @@ struct ImprovedQuantityInputSection: View {
                 HStack {
                     TextField("Amount", text: $quantity)
                         .keyboardType(.decimalPad)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    hideKeyboard()
+                                }
+                            }
+                        }
+
                         .font(.title2)
                         .fontWeight(.medium)
                         .multilineTextAlignment(.center)

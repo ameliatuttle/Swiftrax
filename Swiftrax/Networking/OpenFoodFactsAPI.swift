@@ -53,29 +53,48 @@ struct OpenFoodFactsAPI {
         }
     }
     
-    private struct OFFNutriments: Codable {
-        let energy: Double?
-        let energyKcal: Double?
-        let carbohydrates: Double?
-        let proteins: Double?
-        let fat: Double?
-        let fiber: Double?
-        let sugars: Double?
-        let sodium: Double?
-        let salt: Double?
-        
-        enum CodingKeys: String, CodingKey {
-            case energy
-            case energyKcal = "energy-kcal_100g"
-            case carbohydrates = "carbohydrates_100g"
-            case proteins = "proteins_100g"
-            case fat = "fat_100g"
-            case fiber = "fiber_100g"
-            case sugars = "sugars_100g"
-            case sodium = "sodium_100g"
-            case salt = "salt_100g"
-        }
-    }
+   private struct OFFNutriments: Codable {
+       let energy: Double?
+       let energyKcal: Double?
+       let carbohydrates: Double?
+       let proteins: Double?
+       let fat: Double?
+       let fiber: Double?
+       let sugars: Double?
+       let sodium: Double?
+       let salt: Double?
+
+       // ✅ 🔽 ADD THESE NEW FIELDS:
+       let energyKcalServing: Double?
+       let carbohydratesServing: Double?
+       let proteinsServing: Double?
+       let fatServing: Double?
+       let fiberServing: Double?
+       let sugarsServing: Double?
+       let sodiumServing: Double?
+       
+       enum CodingKeys: String, CodingKey {
+           case energy
+           case energyKcal = "energy-kcal_100g"
+           case carbohydrates = "carbohydrates_100g"
+           case proteins = "proteins_100g"
+           case fat = "fat_100g"
+           case fiber = "fiber_100g"
+           case sugars = "sugars_100g"
+           case sodium = "sodium_100g"
+           case salt = "salt_100g"
+
+           // ✅ 🔽 ADD THESE TOO:
+           case energyKcalServing = "energy-kcal_serving"
+           case carbohydratesServing = "carbohydrates_serving"
+           case proteinsServing = "proteins_serving"
+           case fatServing = "fat_serving"
+           case fiberServing = "fiber_serving"
+           case sugarsServing = "sugars_serving"
+           case sodiumServing = "sodium_serving"
+       }
+   }
+
     
     // MARK: - Public API Methods
     
@@ -222,27 +241,49 @@ struct OpenFoodFactsAPI {
        let nutriments = product.nutriments
        
        // Use energyKcal if available, otherwise try to convert from energy
-       let rawCalories = nutriments.energyKcal ?? (nutriments.energy != nil ? nutriments.energy! / 4.184 : 0)
-       let calories = validateNutritionValue(rawCalories) ?? 0
-       
-       // Create NutritionInfo with validated values
-       let nutritionInfo = NutritionInfo(
-           calories: calories,
-           protein: validateNutritionValue(nutriments.proteins),
-           carbohydrates: validateNutritionValue(nutriments.carbohydrates),
-           fat: validateNutritionValue(nutriments.fat),
-           fiber: validateNutritionValue(nutriments.fiber),
-           sugar: validateNutritionValue(nutriments.sugars),
-           sodium: validateNutritionValue(nutriments.sodium)
-       )
+      let rawCalories = nutriments.energyKcalServing
+          ?? nutriments.energyKcal
+          ?? (nutriments.energy != nil ? nutriments.energy! / 4.184 : 0)
+
+      let calories = validateNutritionValue(rawCalories) ?? 0
+
+      let nutritionInfo = NutritionInfo(
+          calories: calories,
+          protein: validateNutritionValue(nutriments.proteinsServing ?? nutriments.proteins),
+          carbohydrates: validateNutritionValue(nutriments.carbohydratesServing ?? nutriments.carbohydrates),
+          fat: validateNutritionValue(nutriments.fatServing ?? nutriments.fat),
+          fiber: validateNutritionValue(nutriments.fiberServing ?? nutriments.fiber),
+          sugar: validateNutritionValue(nutriments.sugarsServing ?? nutriments.sugars),
+          sodium: validateNutritionValue(nutriments.sodiumServing ?? nutriments.sodium)
+      )
+
        
        // Validate serving size
-       var servingSize: Double = 100
-       if let productServingSize = product.servingSize,
-          let parsedSize = Double(productServingSize),
-          parsedSize > 0 && !parsedSize.isNaN && !parsedSize.isInfinite {
-           servingSize = parsedSize
-       }
+      var servingSize: Double = 100
+      var servingUnit: String = "g"
+
+      if let productServingSize = product.servingSize {
+          // Extract numeric value (e.g. "42.5 g" → 42.5)
+         let numberRegex = try? NSRegularExpression(pattern: #"([0-9]*\.?[0-9]+)\s?g\b"#, options: [.caseInsensitive])
+         if let match = numberRegex?.firstMatch(in: productServingSize, options: [], range: NSRange(location: 0, length: productServingSize.utf16.count)),
+            let range = Range(match.range(at: 1), in: productServingSize) {
+             let numericPart = String(productServingSize[range])
+             if let parsed = Double(numericPart), parsed > 0 {
+                 servingSize = parsed
+                 servingUnit = "g"
+             }
+         }
+          
+          // Extract unit (e.g. "42.5 g" → g)
+          let unitRegex = try? NSRegularExpression(pattern: #"[a-zA-Z]+"#, options: [])
+          if let match = unitRegex?.firstMatch(in: productServingSize, options: [], range: NSRange(location: 0, length: productServingSize.utf16.count)) {
+              if let range = Range(match.range, in: productServingSize) {
+                  servingUnit = String(productServingSize[range]).lowercased()
+              }
+          }
+         print("✅ Parsed serving size: \(servingSize) \(servingUnit)")
+      }
+
        
        let servingSizeUnit = "g"
        

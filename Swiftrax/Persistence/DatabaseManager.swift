@@ -655,11 +655,7 @@ class DatabaseManager: ObservableObject {
                        Swift.print("🔍 After duplicate filtering: \(filteredAPIResults.count) API results")
                        
                        // Save API results with duplicate handling
-                       for food in filteredAPIResults {
-                           self.operationQueue.addOperation {
-                               _ = self.saveFoodWithDuplicateHandlingSync(food)
-                           }
-                       }
+
                        
                        allResults.append(contentsOf: filteredAPIResults)
                        
@@ -900,9 +896,9 @@ class DatabaseManager: ObservableObject {
     
     // MARK: - Legacy Method Compatibility (Safe Wrappers)
     
-    func saveFood(_ food: Food) {
-        saveFoodThreadSafe(food) { _ in }
-    }
+//    func saveFood(_ food: Food) {
+//        saveFoodThreadSafe(food) { _ in }
+//    }
     
     func saveFoodEntry(_ entry: FoodEntry) {
         saveFoodEntryThreadSafe(entry) { _ in }
@@ -916,11 +912,11 @@ class DatabaseManager: ObservableObject {
         searchFoodsWithFuzzyMatching(query: query, completion: completion)
     }
     
-    func saveFoodAsync(_ food: Food, completion: @escaping () -> Void = {}) {
-        saveFoodThreadSafe(food) { _ in
-            completion()
-        }
-    }
+//    func saveFoodAsync(_ food: Food, completion: @escaping () -> Void = {}) {
+//        saveFoodThreadSafe(food) { _ in
+//            completion()
+//        }
+//    }
     
     func saveFoodEntryAsync(_ entry: FoodEntry, completion: @escaping () -> Void = {}) {
         saveFoodEntryThreadSafe(entry) { _ in

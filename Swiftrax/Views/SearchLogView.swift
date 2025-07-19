@@ -410,51 +410,59 @@ struct SearchLogView: View {
         onFoodSelected?(food)  // This will be handled by RecipeCreationView
     }
     
-    private func performSearch() {
-        guard !searchText.isEmpty else {
-            clearSearch()
-            return
-        }
-        
-        Swift.print("\n🔍 ==> STARTING SEARCH FOR: '\(searchText)'")
-        
-        Task { @MainActor in
-            self.isLoading = true
-            self.isSearchingAPI = true
-            self.debugInfo = "🔍 Smart searching for '\(searchText)'..."
-            self.searchResults = []
-        }
-        
-        Task {
-            Swift.print("🧠 Using SmartSearchManager with OpenFoodFacts...")
-            let smartResults = await SmartSearchManager.shared.searchFood(searchText)
-            Swift.print("🎯 SmartSearchManager returned \(smartResults.count) results:")
-            
-            for (index, food) in smartResults.prefix(10).enumerated() {
-                Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
-            }
-            
-            // Apply unit normalization
-            let normalizedResults = smartResults.map { UnitNormalizer.shared.normalizeFood($0) }
-            Swift.print("\n✨ After normalization: \(normalizedResults.count) results")
-            
-            for (index, food) in normalizedResults.prefix(5).enumerated() {
-                Swift.print("  \(index + 1). '\(food.name)' - \(food.servingSize) \(food.servingSizeUnit) - \(Int(food.nutritionInfo.calories ?? 0)) cal - Source: '\(food.source)'")
-            }
-            
-            // Count results by source for debug info
-            let basicCount = normalizedResults.filter { $0.source == "BasicFoods" }.count
-            let openFoodFactsCount = normalizedResults.filter { $0.source == "OpenFoodFacts" }.count
-            let customCount = normalizedResults.filter { $0.source == "manual" }.count
-            
-            Task { @MainActor in
-                self.searchResults = normalizedResults
-                self.isLoading = false
-                self.isSearchingAPI = false
-                self.debugInfo = "✅ Found \(normalizedResults.count) results (\(basicCount) basic, \(openFoodFactsCount) OpenFoodFacts, \(customCount) custom)"
-            }
-        }
-    }
+   private func performSearch() {
+       guard !searchText.isEmpty else {
+           clearSearch()
+           return
+       }
+
+       Swift.print("\n🔍 ==> STARTING SEARCH FOR: '\(searchText)'")
+
+       Task { @MainActor in
+           self.isLoading = true
+           self.searchResults = []
+           self.debugInfo = "🔍 Searching locally..."
+       }
+
+       Task {
+           // Step 1: Local DB search
+          let localResults = await DatabaseManager.shared.searchFoodsAsync(query: searchText)
+           Swift.print("📦 Local DB returned \(localResults.count) results")
+
+           if localResults.count >= 1 {
+               Swift.print("✅ Using local results only")
+               Task { @MainActor in
+                   self.searchResults = localResults
+                   self.isLoading = false
+                   self.debugInfo = "✅ Found \(localResults.count) local matches"
+               }
+               return
+           }
+
+           // Step 2: Fall back to OpenFoodFacts
+           Swift.print("🌐 Not enough local results, searching OpenFoodFacts...")
+
+           do {
+               let apiResults = try await APIManager.shared.searchByText(searchText)
+               Task { @MainActor in
+                   self.searchResults = localResults + apiResults
+                   self.isLoading = false
+                   self.debugInfo = "✅ Found \(apiResults.count) from API + \(localResults.count) local"
+               }
+           } catch {
+               Swift.print("❌ OpenFoodFacts failed: \(error)")
+               Task { @MainActor in
+                   self.searchResults = localResults
+                   self.isLoading = false
+                   self.debugInfo = "⚠️ API failed, showing \(localResults.count) local results"
+                   self.errorMessage = "Could not fetch from OpenFoodFacts"
+                   self.showingError = true
+               }
+           }
+       }
+   }
+
+
     
     private func clearSearch() {
         Task { @MainActor in

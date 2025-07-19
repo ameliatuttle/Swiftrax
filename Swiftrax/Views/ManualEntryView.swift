@@ -75,6 +75,15 @@ struct ManualEntryView: View {
                         TextField("Amount", text: $servingSize)
                             .focused($focusedField, equals: .servingSize)
                             .keyboardType(.decimalPad)
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") {
+                                        hideKeyboard()
+                                    }
+                                }
+                            }
+
                             .frame(maxWidth: .infinity)
                             .onSubmit {
                                 focusedField = .calories
@@ -570,6 +579,15 @@ struct NutritionInputRow: View {
                 TextField("0", text: $value)
                     .focused(focusedField, equals: field)
                     .keyboardType(.decimalPad)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") {
+                                hideKeyboard()
+                            }
+                        }
+                    }
+
                     .multilineTextAlignment(.trailing)
                     .frame(width: 60)
                     .onSubmit {

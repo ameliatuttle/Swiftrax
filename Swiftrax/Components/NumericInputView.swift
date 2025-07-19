@@ -13,9 +13,16 @@ struct NumericInputView: View {
             
             TextField("0", text: $value)
                 .keyboardType(.decimalPad)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            hideKeyboard()
+                        }
+                    }
+                }
                 .multilineTextAlignment(.trailing)
                 .frame(width: 60)
-            
             Text(unit)
                 .foregroundColor(.secondary)
                 .font(.caption)

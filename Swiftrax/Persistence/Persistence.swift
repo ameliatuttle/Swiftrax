@@ -15,7 +15,7 @@ struct PersistenceController {
             servingSizeUnit: "g"
         )
         
-        DatabaseManager.shared.saveFood(sampleFood)
+        //DatabaseManager.shared.saveFood(sampleFood)
         
         do {
             try viewContext.save()

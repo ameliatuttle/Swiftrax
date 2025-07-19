@@ -88,23 +88,26 @@ struct RecipeCreationView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingAddIngredient) {
-            SearchLogView(forRecipeIngredients: { food in
-                selectedFood = food
-                showingAddIngredient = false
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    showingQuantityEntry = true
-                }
-            })
-        }
-        .sheet(isPresented: $showingQuantityEntry) {
-            if let food = selectedFood {
-                RecipeQuantityEntryView(food: food) { quantity in
-                    let ingredient = RecipeIngredient(food: food, quantity: quantity)
-                    addIngredient(ingredient)
-                    selectedFood = nil
-                }
+        .sheet(isPresented: $showingAddIngredient, onDismiss: {
+            selectedFood = nil
+            showingQuantityEntry = false
+        }) {
+            if let food = selectedFood, showingQuantityEntry {
+                // Show quantity entry
+               RecipeQuantityEntryView(food: food) { quantity in
+                   let ingredient = RecipeIngredient(food: food, quantity: quantity)
+                   addIngredient(ingredient)
+                   showingAddIngredient = false  // Close sheet first
+                   // Don't set selectedFood = nil here
+               }
+            } else {
+                // Show search
+               SearchLogView(forRecipeIngredients: { food in
+                   selectedFood = food
+                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                       showingQuantityEntry = true
+                   }
+               })
             }
         }
         .alert("Recipe Created!", isPresented: $showingSuccessAlert) {

@@ -273,9 +273,9 @@ struct SearchLogView: View {
                   addFoodToMeal(food: food, quantity: quantity, unit: unit)
                }
             } else {
-               RecipeQuantityEntryView(food: food) { quantity in
-                  handleRecipeIngredientSelection(food: food, quantity: quantity)
-               }
+//               RecipeQuantityEntryView(food: food) { quantity in
+//                 handleRecipeIngredientSelection(food: food, quantity: quantity)
+//               }
             }
          }
       }
@@ -351,11 +351,17 @@ struct SearchLogView: View {
    
    // Handle food selection from search results or recent logs
    private func selectFood(_ food: Food) {
-      Task { @MainActor in
-         self.selectedFood = food
-         self.isSearchFocused = false
-         self.showingQuantitySheet = true
-      }
+       Task { @MainActor in
+           if case .recipeIngredient = mode {
+               // For recipe mode, call callback directly (no sheet needed)
+               self.onFoodSelected?(food)
+           } else {
+               // For food logging mode, show quantity sheet
+               self.selectedFood = food
+               self.isSearchFocused = false
+               self.showingQuantitySheet = true
+           }
+       }
    }
    
    // Handle food selection after barcode scan

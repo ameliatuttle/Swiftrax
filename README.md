@@ -93,7 +93,7 @@ The app uses SQLite with the following main tables:
 
 | Dashboard | Food Search | Recipe Creation | Manual Entry | History | Settings | App Logo |
 |-----------|-------------|-----------------|--------------|---------|----------|----------|
-| ![Dashboard](screenshots/Dashboard.png) | ![Search](screenshots/SearchLog.png) | ![Recipe](screenshots/Recipes.png) | ![Manual](screenshots/Manual.png) | ![History](screenshots/History.png) | ![Settings](screenshots/Settings.png) | ![AppLogo](screenshots/AppLogo.png) |
+| ![Dashboard](screenshots/Dashboard.PNG) | ![Search](screenshots/SearchLog.PNG) | ![Recipe](screenshots/Recipes.PNG) | ![Manual](screenshots/Manual.PNG) | ![History](screenshots/History.PNG) | ![Settings](screenshots/Settings.PNG) | ![AppLogo](screenshots/AppLogo.PNG) |
 
 ## 🙏 Acknowledgments
 

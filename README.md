@@ -2,6 +2,9 @@
 
 A clean, focused nutrition tracking app for iOS built with SwiftUI. No fitness features, no ads, no sponsored content. Just simple, swift food logging.
 
+### ‼️ Privacy Policy Notice
+We do not collect or track any of your personal data. The app will save information to your local device, but only you have access and it will be deleted upon app deletion.
+
 ## 📱 Features
 
 ### Core Functionality

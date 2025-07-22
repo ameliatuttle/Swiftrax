@@ -271,6 +271,7 @@ struct ManualEntryView: View {
             .onChange(of: calories) { _ in validateFormAsync() }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingUnitPicker) {
             NavigationView {
                 List {

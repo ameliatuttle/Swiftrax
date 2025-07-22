@@ -91,6 +91,7 @@ struct HistoryView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 

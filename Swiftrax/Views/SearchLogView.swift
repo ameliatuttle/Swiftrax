@@ -14,6 +14,7 @@ struct SearchLogView: View {
    @State private var showingError = false
    @State private var errorMessage = ""
    @State private var isSearchingAPI = false
+   @State private var showingSourcesInfo = false
    
    @FocusState private var isSearchFocused: Bool
    
@@ -163,7 +164,8 @@ struct SearchLogView: View {
                      recentLogs: recentLogs,
                      selectedMealType: selectedMealType,
                      onFoodSelected: selectFood,
-                     onRefresh: loadRecentLogs
+                     onRefresh: loadRecentLogs,
+                     onShowSources: { showingSourcesInfo = true }
                   )
                } else {
                   // Recipe mode search instruction
@@ -218,6 +220,7 @@ struct SearchLogView: View {
                      EnhancedSearchResultRow(
                         food: food,
                         searchText: searchText,
+                        onShowSources: { showingSourcesInfo = true },
                         onTap: {
                            selectFood(food)
                         }
@@ -229,14 +232,18 @@ struct SearchLogView: View {
          }
          .navigationTitle(navigationTitle)
          .navigationBarTitleDisplayMode(.inline)
-         .navigationBarItems(
-            leading: recipeModeCancelButton,
-            trailing: EmptyView()
-         )
          .onAppear {
             setupInitialState()
          }
          .frame(maxWidth: .infinity, maxHeight: .infinity)
+         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+               recipeModeCancelButton
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+               nutritionSourcesButton
+            }
+         }
          .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                Spacer()
@@ -246,6 +253,7 @@ struct SearchLogView: View {
             }
          }
       }
+      .navigationViewStyle(StackNavigationViewStyle())
       .sheet(isPresented: $showingBarcodeScanner, onDismiss: {
          isSearchFocused = false
          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -278,6 +286,9 @@ struct SearchLogView: View {
 //               }
             }
          }
+      }
+      .sheet(isPresented: $showingSourcesInfo) {
+         NutritionSourcesView()
       }
       .alert("Food Added!", isPresented: $showingSuccessAlert) {
          Button("OK") {
@@ -326,6 +337,19 @@ struct SearchLogView: View {
             // Handled by parent view
          }
       }
+   }
+   
+   @ViewBuilder
+   private var nutritionSourcesButton: some View {
+       if case .foodLogging = mode {
+           Button(action: {
+               showingSourcesInfo = true
+           }) {
+               Image(systemName: "info.circle")
+                  .font(.title3)
+                  .foregroundColor(.blue)
+           }
+       }
    }
    
    // Setup initial view state based on mode
@@ -540,6 +564,7 @@ struct SearchLogView: View {
       let selectedMealType: MealType
       let onFoodSelected: (Food) -> Void
       let onRefresh: () -> Void
+      let onShowSources: () -> Void
       
       var body: some View {
          ScrollView {
@@ -602,7 +627,10 @@ struct SearchLogView: View {
                      .padding(.bottom, 8)
                      
                      ForEach(Array(recentLogs.prefix(15).enumerated()), id: \.element.id) { index, entry in
-                        RecentLogRow(entry: entry) {
+                        RecentLogRow(
+                           entry: entry,
+                           onShowSources: onShowSources
+                        ) {
                            onFoodSelected(entry.food)
                         }
                         .padding(.horizontal)
@@ -625,6 +653,7 @@ struct SearchLogView: View {
    // Individual row for recent log entries
    struct RecentLogRow: View {
       let entry: FoodEntry
+      let onShowSources: () -> Void
       let onTap: () -> Void
       
       private var timeAgo: String {
@@ -687,9 +716,18 @@ struct SearchLogView: View {
                      .font(.subheadline)
                      .fontWeight(.semibold)
                   
-                  Text("cal")
-                     .font(.caption2)
-                     .foregroundColor(.secondary)
+                  HStack(spacing: 4) {
+                     Text("cal")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                     Button(action: onShowSources) {
+                        Image(systemName: "info.circle.fill")
+                           .font(.caption)
+                           .foregroundColor(.blue)
+                     }
+                     .buttonStyle(PlainButtonStyle())
+                     .padding(4)
+                  }
                }
                
                Image(systemName: "plus.circle.fill")
@@ -707,6 +745,7 @@ struct SearchLogView: View {
    struct EnhancedSearchResultRow: View {
       let food: Food
       let searchText: String
+      let onShowSources: () -> Void
       let onTap: () -> Void
       
       var body: some View {
@@ -753,14 +792,24 @@ struct SearchLogView: View {
                
                Spacer()
                
-               VStack(alignment: .trailing, spacing: 2) {
+               VStack(alignment: .trailing, spacing: 4) {
                   Text("\(Int(food.nutritionInfo.calories ?? 0))")
                      .font(.title3)
                      .fontWeight(.bold)
                   
-                  Text("cal")
-                     .font(.caption2)
-                     .foregroundColor(.secondary)
+                  HStack(spacing: 4) {
+                     Text("cal")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                     
+                     Button(action: onShowSources) {
+                         Image(systemName: "info.circle.fill")
+                             .font(.caption)
+                             .foregroundColor(.blue)
+                     }
+                     .buttonStyle(PlainButtonStyle())
+                     .padding(4)
+                  }
                }
             }
             .padding(.vertical, 8)
@@ -793,4 +842,69 @@ struct SearchLogView: View {
          }
       }
    }
+}
+
+// Nutrition Sources Information View
+struct NutritionSourcesView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Nutritional Data Sources")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    VStack(alignment: .leading, spacing: 16) {
+                        SourceCard(
+                            title: "USDA FoodData Central",
+                            description: "Official nutritional database maintained by the U.S. Department of Agriculture",
+                            url: "https://fdc.nal.usda.gov"
+                        )
+                        
+                        SourceCard(
+                            title: "Open Food Facts",
+                            description: "Collaborative database of food products with ingredients and nutrition facts",
+                            url: "https://world.openfoodfacts.org"
+                        )
+                    }
+                    
+                    Text("Data Accuracy")
+                        .font(.headline)
+                        .padding(.top)
+                    
+                    Text("Nutritional information is sourced from verified databases and product labels. Data accuracy may vary. Always consult nutrition labels on actual products and healthcare professionals for dietary advice.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+            }
+            .navigationTitle("Data Sources")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(trailing: Button("Done") { dismiss() })
+        }
+    }
+}
+
+struct SourceCard: View {
+    let title: String
+    let description: String
+    let url: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Text(description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Link(url, destination: URL(string: url)!)
+                .font(.caption)
+                .foregroundColor(.blue)
+        }
+        .padding()
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(8)
+    }
 }

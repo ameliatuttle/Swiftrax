@@ -10,6 +10,7 @@ struct QuantityEntryView: View {
     @State private var showingUnitPicker = false
     @State private var isConverting = false
     @State private var showingConversionHelper = false
+    @State private var showingSourcesInfo = false // Add this line
     
     @Environment(\.presentationMode) var presentationMode
     
@@ -152,7 +153,8 @@ struct QuantityEntryView: View {
                             nutrition: calculatedNutrition,
                             quantity: quantity,
                             unit: selectedUnit,
-                            originalFood: food
+                            originalFood: food,
+                            onShowSources: { showingSourcesInfo = true }
                         )
                     }
                     
@@ -184,6 +186,9 @@ struct QuantityEntryView: View {
                     showingUnitPicker = false
                 }
             )
+        }
+        .sheet(isPresented: $showingSourcesInfo) {
+            NutritionSourcesView()
         }
     }
     
@@ -429,6 +434,7 @@ struct ImprovedNutritionPreviewCard: View {
     let quantity: String
     let unit: MeasurementUnit
     let originalFood: Food
+    let onShowSources: () -> Void
     
     private var servingRatio: Double {
         guard let quantityValue = Double(quantity) else { return 1.0 }
@@ -456,14 +462,31 @@ struct ImprovedNutritionPreviewCard: View {
                 
                 Spacer()
                 
-                if servingRatio != 1.0 {
-                    Text("\(servingRatio.formattedNutrition)× serving")
-                        .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText)
+                HStack(spacing: 8) {
+                    if servingRatio != 1.0 {
+                        Text("\(servingRatio.formattedNutrition)× serving")
+                            .font(.caption)
+                            .foregroundColor(Color.adaptiveSecondaryText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.fillSecondary)
+                            .cornerRadius(4)
+                    }
+                    
+                    Button(action: onShowSources) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.caption)
+                            Text("Sources")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.blue)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.fillSecondary)
-                        .cornerRadius(4)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
             

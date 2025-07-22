@@ -40,19 +40,19 @@ struct ContentView: View {
                 }
                 .tag(3)
             
-            HistoryView()
-                .tabItem {
-                    Image(systemName: "clock.fill")
-                    Text("History")
-                }
-                .tag(4)
+//            HistoryView()
+//                .tabItem {
+//                    Image(systemName: "clock.fill")
+//                    Text("History")
+//                }
+//                .tag(4)
             
             SettingsView()
                 .tabItem {
                     Image(systemName: "gear")
                     Text("Settings")
                 }
-                .tag(5)
+                .tag(4)
         }
         .background(Color.appBackground)
         // Apply selected theme (light/dark/system)

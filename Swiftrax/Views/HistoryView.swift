@@ -1,3 +1,5 @@
+// fix bounce back .onAppear
+
 import SwiftUI
 
 struct HistoryView: View {

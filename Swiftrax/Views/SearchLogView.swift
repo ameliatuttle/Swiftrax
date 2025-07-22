@@ -858,16 +858,16 @@ struct NutritionSourcesView: View {
                     
                     VStack(alignment: .leading, spacing: 16) {
                         SourceCard(
-                            title: "USDA FoodData Central",
-                            description: "Official nutritional database maintained by the U.S. Department of Agriculture",
-                            url: "https://fdc.nal.usda.gov"
-                        )
-                        
-                        SourceCard(
                             title: "Open Food Facts",
-                            description: "Collaborative database of food products with ingredients and nutrition facts",
+                            description: "Collaborative database of food products with ingredients and nutrition facts. All food information pulled from the internet is found here",
                             url: "https://world.openfoodfacts.org"
                         )
+                       
+                       SourceCard(
+                           title: "USDA FoodData Central",
+                           description: "Official nutritional database maintained by the U.S. Department of Agriculture. Foods that are preloaded to the database comply with a 95% accuracy to USDA foods on their official site",
+                           url: "https://fdc.nal.usda.gov"
+                       )
                     }
                     
                     Text("Data Accuracy")

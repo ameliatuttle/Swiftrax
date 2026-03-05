@@ -46,189 +46,9 @@ struct SearchLogView: View {
    var body: some View {
       NavigationView {
          VStack(spacing: 0) {
-            // Header with conditional meal type picker
-            VStack(spacing: 12) {
-               if case .foodLogging = mode {
-                  Picker("Meal Type", selection: $selectedMealType) {
-                     ForEach(MealType.allCases, id: \.self) { mealType in
-                        Text("\(mealType.emoji) \(mealType.rawValue)")
-                           .tag(mealType)
-                     }
-                  }
-                  .pickerStyle(SegmentedPickerStyle())
-               }
-               
-               // Search bar with barcode scanner
-               HStack(spacing: 12) {
-                  HStack(spacing: 8) {
-                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                     
-                     TextField(searchPlaceholder, text: $searchText)
-                        .focused($isSearchFocused)
-                        .onSubmit {
-                           performSearch()
-                           clearSearch()
-                        }
-                        .onChange(of: searchText) { newValue in
-                           if newValue.isEmpty {
-                              clearSearch()
-                           } else if newValue.count > 2 {
-                              Task {
-                                 try? await Task.sleep(nanoseconds: 500_000_000)
-                                 if searchText == newValue {
-                                    performSearch()
-                                 }
-                              }
-                           }
-                        }
-                     
-                     if isLoading {
-                        ProgressView()
-                           .scaleEffect(0.8)
-                     } else if !searchText.isEmpty {
-                        Button("Clear", action: clearSearch)
-                           .font(.caption)
-                           .foregroundColor(.blue)
-                     }
-                  }
-                  .padding(.horizontal, 12)
-                  .padding(.vertical, 10)
-                  .background(Color.gray.opacity(0.1))
-                  .cornerRadius(10)
-                  
-                  Button(action: {
-                     isSearchFocused = false
-                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        showingBarcodeScanner = true
-                     }
-                  }) {
-                     Image(systemName: "barcode.viewfinder")
-                        .font(.title2)
-                        .foregroundColor(.blue)
-                  }
-                  .padding(.horizontal, 12)
-                  .padding(.vertical, 10)
-                  .background(Color.blue.opacity(0.1))
-                  .cornerRadius(10)
-               }
-               
-               // Search status indicator
-               if isSearchingAPI {
-                  HStack(spacing: 8) {
-                     ProgressView()
-                        .scaleEffect(0.7)
-                     Text("Searching online databases...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                  }
-                  .padding(.vertical, 4)
-               } else if !searchText.isEmpty && searchResults.count > 0 {
-                  HStack {
-                     Text("Found \(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                     Spacer()
-                  }
-                  .padding(.vertical, 4)
-               }
-            }
-            .padding()
-            
+            headerView
             Divider()
-            
-            // Main content area
-            if isLoading && searchResults.isEmpty {
-               VStack(spacing: 16) {
-                  Spacer()
-                  
-                  ProgressView()
-                     .scaleEffect(1.2)
-                  
-                  Text("Searching...")
-                     .font(.headline)
-                  
-                  if isSearchingAPI {
-                     Text("Checking online food databases...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                  }
-                  
-                  Spacer()
-               }
-               .padding()
-            } else if searchResults.isEmpty && searchText.isEmpty {
-               if case .foodLogging = mode {
-                  ImprovedRecentLogsView(
-                     recentLogs: recentLogs,
-                     selectedMealType: selectedMealType,
-                     onFoodSelected: selectFood,
-                     onRefresh: loadRecentLogs,
-                     onShowSources: { showingSourcesInfo = true }
-                  )
-               } else {
-                  // Recipe mode search instruction
-                  VStack(spacing: 20) {
-                     Spacer()
-                     
-                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 60))
-                        .foregroundColor(.secondary)
-                     
-                     Text("Search for Ingredients")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                     
-                     Text("Search by name or scan a barcode to find ingredients for your recipe")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                     
-                     Spacer()
-                  }
-                  .padding()
-               }
-            } else if searchResults.isEmpty && !isLoading {
-               // No results found state
-               VStack(spacing: 20) {
-                  Spacer()
-                  
-                  Image(systemName: "exclamationmark.magnifyingglass")
-                     .font(.system(size: 60))
-                     .foregroundColor(.secondary)
-                  
-                  Text("No results found")
-                     .font(.title2)
-                     .fontWeight(.semibold)
-                     .foregroundColor(.secondary)
-                  
-                  Text("Try different keywords or check spelling")
-                     .font(.subheadline)
-                     .foregroundColor(.secondary)
-                     .multilineTextAlignment(.center)
-                  
-                  Spacer()
-               }
-               .padding()
-            } else {
-               // Search results list
-               List {
-                  ForEach(searchResults) { food in
-                     EnhancedSearchResultRow(
-                        food: food,
-                        searchText: searchText,
-                        onShowSources: { showingSourcesInfo = true },
-                        onTap: {
-                           selectFood(food)
-                        }
-                     )
-                  }
-               }
-               .listStyle(PlainListStyle())
-            }
+            mainContentView
          }
          .navigationTitle(navigationTitle)
          .navigationBarTitleDisplayMode(.inline)
@@ -254,6 +74,189 @@ struct SearchLogView: View {
          }
       }
       .navigationViewStyle(StackNavigationViewStyle())
+      .onAppear {
+         if let preselected = preselectedMealType {
+            selectedMealType = preselected
+         }
+      }
+   }
+   
+   private var headerView: some View {
+      VStack(spacing: 12) {
+         searchBarView
+      }
+      .padding(.horizontal)
+      .padding(.top)
+   }
+   
+   private var searchBarView: some View {
+      HStack(spacing: 12) {
+         HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+               .foregroundColor(.secondary)
+            
+            TextField(searchPlaceholder, text: $searchText)
+               .focused($isSearchFocused)
+               .onSubmit {
+                  performSearch()
+                  clearSearch()
+               }
+               .onChange(of: searchText) { newValue in
+                  if newValue.isEmpty {
+                     clearSearch()
+                  } else if newValue.count > 2 {
+                     Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        if searchText == newValue {
+                           performSearch()
+                        }
+                     }
+                  }
+               }
+            
+            if isLoading {
+               ProgressView()
+                  .scaleEffect(0.8)
+            } else if !searchText.isEmpty {
+               Button("Clear", action: clearSearch)
+                  .font(.caption)
+                  .foregroundColor(.blue)
+            }
+         }
+         .padding(.horizontal, 12)
+         .padding(.vertical, 10)
+         .background(Color.gray.opacity(0.1))
+         .cornerRadius(10)
+         
+         Button(action: {
+            isSearchFocused = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+               showingBarcodeScanner = true
+            }
+         }) {
+            Image(systemName: "barcode.viewfinder")
+               .font(.title2)
+               .foregroundColor(.blue)
+         }
+         .accessibilityLabel("Scan barcode")
+      }
+   }
+   
+   private var mainContentView: some View {
+      VStack(spacing: 0) {
+         // Search status indicator
+         if isSearchingAPI {
+            HStack(spacing: 8) {
+               ProgressView()
+                  .scaleEffect(0.7)
+               Text("Searching online databases...")
+                  .font(.caption)
+                  .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+         } else if !searchText.isEmpty && searchResults.count > 0 {
+            HStack {
+               Text("Found \(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
+                  .font(.caption)
+                  .foregroundColor(.secondary)
+               Spacer()
+            }
+            .padding(.vertical, 4)
+         }
+         
+         // Main content area
+         if isLoading && searchResults.isEmpty {
+            VStack(spacing: 16) {
+               Spacer()
+               
+               ProgressView()
+                  .scaleEffect(1.2)
+               
+               Text("Searching...")
+                  .font(.headline)
+               
+               if isSearchingAPI {
+                  Text("Checking online food databases...")
+                     .font(.caption)
+                     .foregroundColor(.secondary)
+                     .multilineTextAlignment(.center)
+               }
+               
+               Spacer()
+            }
+            .padding()
+         } else if searchResults.isEmpty && searchText.isEmpty {
+            if case .foodLogging = mode {
+               ImprovedRecentLogsView(
+                  recentLogs: recentLogs,
+                  selectedMealType: selectedMealType,
+                  onFoodSelected: selectFood,
+                  onRefresh: loadRecentLogs,
+                  onShowSources: { showingSourcesInfo = true }
+               )
+            } else {
+               // Recipe mode search instruction
+               VStack(spacing: 20) {
+                  Spacer()
+                  
+                  Image(systemName: "magnifyingglass")
+                     .font(.system(size: 60))
+                     .foregroundColor(.secondary)
+                  
+                  Text("Search for Ingredients")
+                     .font(.title2)
+                     .fontWeight(.semibold)
+                     .foregroundColor(.secondary)
+                  
+                  Text("Search by name or scan a barcode to find ingredients for your recipe")
+                     .font(.subheadline)
+                     .foregroundColor(.secondary)
+                     .multilineTextAlignment(.center)
+                     .padding(.horizontal)
+                  
+                  Spacer()
+               }
+               .padding()
+            }
+         } else if searchResults.isEmpty && !isLoading {
+            // No results found state
+            VStack(spacing: 20) {
+               Spacer()
+               
+               Image(systemName: "exclamationmark.magnifyingglass")
+                  .font(.system(size: 60))
+                  .foregroundColor(.secondary)
+               
+               Text("No results found")
+                  .font(.title2)
+                  .fontWeight(.semibold)
+                  .foregroundColor(.secondary)
+               
+               Text("Try different keywords or check spelling")
+                  .font(.subheadline)
+                  .foregroundColor(.secondary)
+                  .multilineTextAlignment(.center)
+               
+               Spacer()
+            }
+            .padding()
+         } else {
+            // Search results list
+            List {
+               ForEach(searchResults) { food in
+                  EnhancedSearchResultRow(
+                     food: food,
+                     searchText: searchText,
+                     onShowSources: { showingSourcesInfo = true },
+                     onTap: {
+                        selectFood(food)
+                     }
+                  )
+               }
+            }
+            .listStyle(PlainListStyle())
+         }
+      }
       .sheet(isPresented: $showingBarcodeScanner, onDismiss: {
          isSearchFocused = false
          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -277,13 +280,9 @@ struct SearchLogView: View {
                QuantityEntryView(
                   food: food,
                   mealType: selectedMealType
-               ) { quantity, unit in
+               ) { quantity, unit, mealType in
                   addFoodToMeal(food: food, quantity: quantity, unit: unit)
                }
-            } else {
-//               RecipeQuantityEntryView(food: food) { quantity in
-//                 handleRecipeIngredientSelection(food: food, quantity: quantity)
-//               }
             }
          }
       }

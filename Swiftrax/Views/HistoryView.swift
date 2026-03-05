@@ -1,96 +1,107 @@
+// fix bounce back .onAppear
+
 import SwiftUI
 
 struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModelMain()
     @State private var selectedTimeRange: TimeRange = .week
+    @State private var hasAppeared = false
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                VStack(spacing: 12) {
-                    Picker("Time Range", selection: $selectedTimeRange) {
-                        ForEach(TimeRange.allCases, id: \.self) { range in
-                            Text(range.rawValue).tag(range)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                    .onChange(of: selectedTimeRange) { _ in
-                        viewModel.loadHistory(for: selectedTimeRange)
+        VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                Picker("Time Range", selection: $selectedTimeRange) {
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
                     }
                 }
-                .padding()
-                
-                if viewModel.isLoading {
-                    VStack {
-                        Spacer()
-                        ProgressView("Loading history...")
-                        Spacer()
-                    }
-                } else if viewModel.dailyData.isEmpty {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        
-                        Image(systemName: "chart.bar")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        
-                        Text("No history yet")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        
-                        Text("Start logging foods to see your progress here")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        
-                        Spacer()
-                    }
-                    .padding()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 20) {
-                            HStack {
-                                Text("Daily Progress")
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 16) {
-                                    Label("Actual", systemImage: "circle.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
-                                    
-                                    Label("Goal", systemImage: "circle.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.gray.opacity(0.3))
-                                }
-                            }
-                            .padding(.horizontal)
-                            
-                            DailyProgressBarChart(
-                                dailyData: viewModel.dailyData,
-                                userGoals: viewModel.userGoals
-                            )
-                            
-                            HistorySummaryView(
-                                dailyData: viewModel.dailyData,
-                                userGoals: viewModel.userGoals,
-                                timeRange: selectedTimeRange
-                            )
-                        }
-                        .padding(.bottom)
-                    }
+                .pickerStyle(SegmentedPickerStyle())
+                .onChange(of: selectedTimeRange) { _ in
+                    viewModel.loadHistory(for: selectedTimeRange)
                 }
             }
-            .navigationTitle("History")
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
+            .padding()
+            
+            if viewModel.isLoading {
+                VStack {
+                    Spacer()
+                    ProgressView("Loading history...")
+                    Spacer()
+                }
+            } else if viewModel.dailyData.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    
+                    Image(systemName: "chart.bar")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    
+                    Text("No history yet")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    Text("Start logging foods to see your progress here")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Spacer()
+                }
+                .padding()
+            } else {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        HStack {
+                            Text("Daily Progress")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            
+                            Spacer()
+                            
+                            HStack(spacing: 16) {
+                                Label("Actual", systemImage: "circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                                
+                                Label("Goal", systemImage: "circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.gray.opacity(0.3))
+                            }
+                        }
+                        .padding(.horizontal)
+                        
+                        DailyProgressBarChart(
+                            dailyData: viewModel.dailyData,
+                            userGoals: viewModel.userGoals
+                        )
+                        
+                        HistorySummaryView(
+                            dailyData: viewModel.dailyData,
+                            userGoals: viewModel.userGoals,
+                            timeRange: selectedTimeRange
+                        )
+                    }
+                    .padding(.bottom)
+                }
+            }
+        }
+        .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.large)
+        .background(Color.appBackground)
+        .onAppear {
+            // Only load data on first appear or when explicitly refreshing
+            if !hasAppeared {
+                hasAppeared = true
                 viewModel.loadHistory(for: selectedTimeRange)
                 viewModel.loadUserGoals()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .refreshable {
+            // Explicit refresh when user pulls down
+            viewModel.loadHistory(for: selectedTimeRange)
+            viewModel.loadUserGoals()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -10,51 +10,54 @@ struct ContentView: View {
     }
     
     var body: some View {
-        // Main tab navigation container
-        TabView(selection: $selectedTab) {
-            DashboardView()
-                .tabItem {
-                    Image(systemName: "house.fill")
-                    Text("Dashboard")
-                }
-                .tag(0)
-            
-            SearchLogView()
-                .tabItem {
-                    Image(systemName: "magnifyingglass.circle.fill")
-                    Text("Search & Log")
-                }
-                .tag(1)
-            
-            ManualEntryView()
-                .tabItem {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Manual Entry")
-                }
-                .tag(2)
-            
-            RecipesView()
-                .tabItem {
-                    Image(systemName: "book.closed")
-                    Text("Recipes")
-                }
-                .tag(3)
-            
-            HistoryView()
-                .tabItem {
-                    Image(systemName: "clock.fill")
-                    Text("History")
-                }
-                .tag(4)
-            
-            SettingsView()
-                .tabItem {
-                    Image(systemName: "gear")
-                    Text("Settings")
-                }
-                .tag(5)
+        NavigationView {
+            // Main tab navigation container
+            TabView(selection: $selectedTab) {
+                DashboardView()
+                    .tabItem {
+                        Image(systemName: "house.fill")
+                        Text("Dashboard")
+                    }
+                    .tag(0)
+                
+                SearchLogView()
+                    .tabItem {
+                        Image(systemName: "magnifyingglass.circle.fill")
+                        Text("Search & Log")
+                    }
+                    .tag(1)
+                
+                ManualEntryView()
+                    .tabItem {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Manual Entry")
+                    }
+                    .tag(2)
+                
+                RecipesView()
+                    .tabItem {
+                        Image(systemName: "book.closed")
+                        Text("Recipes")
+                    }
+                    .tag(3)
+                
+                HistoryView()
+                    .tabItem {
+                        Image(systemName: "clock.fill")
+                        Text("History")
+                    }
+                    .tag(4)
+                
+                SettingsView()
+                    .tabItem {
+                        Image(systemName: "gear")
+                        Text("Settings")
+                    }
+                    .tag(5)
+            }
+            .background(Color.appBackground)
         }
-        .background(Color.appBackground)
+        .navigationViewStyle(StackNavigationViewStyle())
         // Apply selected theme (light/dark/system)
         .preferredColorScheme(currentTheme.colorScheme)
         .onAppear {

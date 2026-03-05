@@ -162,7 +162,7 @@ class BasicFoodsSeeder {
             
             // Nuts and Seeds
             createFood(name: "Almonds", calories: 576, protein: 21, carbs: 22, fat: 49, size: 100, unit: "g"),
-            createFood(name: "Walnuts", calories: 618, protein: 15, carbs: 14, fat: 59, size: 100, unit: "g"),
+            createFood(name: "Walnuts", calories: 654, protein: 15, carbs: 14, fat: 59, size: 100, unit: "g"),
             createFood(name: "Peanuts", calories: 567, protein: 26, carbs: 16, fat: 49, size: 100, unit: "g"),
             createFood(name: "Sunflower Seeds", calories: 584, protein: 21, carbs: 20, fat: 51, size: 100, unit: "g"),
             createFood(name: "Chia Seeds", calories: 486, protein: 17, carbs: 42, fat: 31, size: 100, unit: "g"),

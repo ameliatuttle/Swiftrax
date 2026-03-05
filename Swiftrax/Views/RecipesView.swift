@@ -82,6 +82,7 @@ struct RecipesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingCreateRecipe) {
             RecipeCreationView()
         }

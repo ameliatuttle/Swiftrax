@@ -74,7 +74,7 @@ struct Food: Codable, Identifiable, Hashable {
         case "manual":
             return "✏️"
         default:
-            return "❓"
+            return "🇺🇸"
         }
     }
 }

@@ -2,29 +2,32 @@ import SwiftUI
 
 struct QuantityEntryView: View {
     let food: Food
-    let mealType: MealType
-    let onSave: (Double, MeasurementUnit) -> Void
+    let initialMealType: MealType
+    let onSave: (Double, MeasurementUnit, MealType) -> Void
     
     @State private var quantity: String = ""
     @State private var selectedUnit: MeasurementUnit
+    @State private var selectedMealType: MealType
     @State private var showingUnitPicker = false
     @State private var isConverting = false
     @State private var showingConversionHelper = false
+    @State private var showingSourcesInfo = false // Add this line
     
     @Environment(\.presentationMode) var presentationMode
     
     private let originalUnit: MeasurementUnit
     private let suggestedUnits: [MeasurementUnit]
     
-    init(food: Food, mealType: MealType, onSave: @escaping (Double, MeasurementUnit) -> Void) {
+    init(food: Food, mealType: MealType, onSave: @escaping (Double, MeasurementUnit, MealType) -> Void) {
         self.food = food
-        self.mealType = mealType
+        self.initialMealType = mealType
         self.onSave = onSave
         
         self.originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
         self.suggestedUnits = UnitConverter.shared.getSuggestedUnits(for: food)
         
         self._selectedUnit = State(initialValue: originalUnit)
+        self._selectedMealType = State(initialValue: mealType) // Use mealType here
         self._quantity = State(initialValue: UnitConversionHelper.formatQuantity(food.servingSize))
     }
     
@@ -81,7 +84,10 @@ struct QuantityEntryView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    ImprovedFoodInfoCard(food: food)
+                    ImprovedFoodInfoCard(
+                        food: food,
+                        selectedMealType: $selectedMealType
+                    )
                    
                    if let servings = numberOfServings {
                       Text("≈ \(String(format: "%.2f", servings)) servings")
@@ -98,13 +104,12 @@ struct QuantityEntryView: View {
                         onUnitChanged: { unit in handleUnitChange(to: unit) }
                     )
                    
-                   Slider(
+                   CompactDigitalRollerPicker(
                        value: Binding(
                            get: { Double(quantity) ?? 0 },
                            set: { quantity = UnitConversionHelper.formatQuantity($0) }
                        ),
-                       in: 0...500,
-                       step: 0.5
+                       range: 0...999
                    )
                    .padding(.horizontal)
                    
@@ -152,7 +157,8 @@ struct QuantityEntryView: View {
                             nutrition: calculatedNutrition,
                             quantity: quantity,
                             unit: selectedUnit,
-                            originalFood: food
+                            originalFood: food,
+                            onShowSources: { showingSourcesInfo = true }
                         )
                     }
                     
@@ -160,7 +166,7 @@ struct QuantityEntryView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Add to \(mealType.rawValue)")
+            .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
                 leading: Button("Cancel") {
@@ -185,6 +191,9 @@ struct QuantityEntryView: View {
                 }
             )
         }
+        .sheet(isPresented: $showingSourcesInfo) {
+            NutritionSourcesView()
+        }
     }
     
     // Updates selected unit and sets appropriate default quantity
@@ -198,13 +207,14 @@ struct QuantityEntryView: View {
     private func saveEntry() {
         guard let quantityValue = Double(quantity), quantityValue > 0 else { return }
         
-        onSave(quantityValue, selectedUnit)
+        onSave(quantityValue, selectedUnit, selectedMealType)
         presentationMode.wrappedValue.dismiss()
     }
 }
 
 struct ImprovedFoodInfoCard: View {
     let food: Food
+    @Binding var selectedMealType: MealType
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -246,6 +256,24 @@ struct ImprovedFoodInfoCard: View {
                         }
                     }
                 }
+            }
+            
+            // Meal Selection Section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add to Meal")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(Color.adaptiveText)
+                
+                Picker("Select Meal", selection: $selectedMealType) {
+                    ForEach(MealType.allCases, id: \.self) { mealType in
+                        let displayText = mealType.emoji + " " + mealType.rawValue
+                        Text(displayText)
+                            .font(.caption)
+                            .tag(mealType)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
             }
             
             Divider()
@@ -429,6 +457,7 @@ struct ImprovedNutritionPreviewCard: View {
     let quantity: String
     let unit: MeasurementUnit
     let originalFood: Food
+    let onShowSources: () -> Void
     
     private var servingRatio: Double {
         guard let quantityValue = Double(quantity) else { return 1.0 }
@@ -456,14 +485,31 @@ struct ImprovedNutritionPreviewCard: View {
                 
                 Spacer()
                 
-                if servingRatio != 1.0 {
-                    Text("\(servingRatio.formattedNutrition)× serving")
-                        .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText)
+                HStack(spacing: 8) {
+                    if servingRatio != 1.0 {
+                        Text("\(servingRatio.formattedNutrition)× serving")
+                            .font(.caption)
+                            .foregroundColor(Color.adaptiveSecondaryText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.fillSecondary)
+                            .cornerRadius(4)
+                    }
+                    
+                    Button(action: onShowSources) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.caption)
+                            Text("Sources")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.blue)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.fillSecondary)
-                        .cornerRadius(4)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
             

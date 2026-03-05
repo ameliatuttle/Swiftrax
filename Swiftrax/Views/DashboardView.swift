@@ -19,6 +19,9 @@ struct DashboardView: View {
                            entries: viewModel.foodEntries.filteredByMealType(mealType),
                            onDeleteEntry: { entry in
                                viewModel.deleteEntry(entry)
+                           },
+                           onEditEntry: { entry in
+                               viewModel.editEntry(entry)
                            }
                        )
                    }
@@ -42,6 +45,13 @@ struct DashboardView: View {
                Task { @MainActor in
                    viewModel.loadEntries(for: Date())
                    viewModel.loadUserSettings()
+               }
+           }
+           .sheet(isPresented: $viewModel.showingEditSheet) {
+               if let entry = viewModel.entryToEdit {
+                   EditQuantityView(entry: entry) { updatedEntry in
+                       viewModel.updateEntry(updatedEntry)
+                   }
                }
            }
        }
@@ -205,6 +215,8 @@ class DashboardViewModelMain: ObservableObject {
     @Published var foodEntries: [FoodEntry] = []
     @Published var userSettings = User()
     @Published var isLoading = false
+    @Published var showingEditSheet = false
+    @Published var entryToEdit: FoodEntry?
     
     private let databaseManager = DatabaseManager.shared
     private var hasSetupObserver = false
@@ -265,6 +277,35 @@ class DashboardViewModelMain: ObservableObject {
                     self.loadEntries(for: Date())
                 } else {
                     print("Failed to delete food entry")
+                    self.loadEntries(for: Date())
+                }
+            }
+        }
+    }
+    
+    // Initiates editing for a food entry
+    @MainActor
+    func editEntry(_ entry: FoodEntry) {
+        entryToEdit = entry
+        showingEditSheet = true
+    }
+    
+    // Updates food entry in database
+    @MainActor
+    func updateEntry(_ entry: FoodEntry) {
+        // Update UI immediately
+        if let index = foodEntries.firstIndex(where: { $0.id == entry.id }) {
+            foodEntries[index] = entry
+        }
+        
+        // Update database
+        databaseManager.updateFoodEntryThreadSafe(entry) { success in
+            Task { @MainActor in
+                if success {
+                    print("Food entry updated successfully")
+                    self.loadEntries(for: Date())
+                } else {
+                    print("Failed to update food entry")
                     self.loadEntries(for: Date())
                 }
             }

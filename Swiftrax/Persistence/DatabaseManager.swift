@@ -487,6 +487,15 @@ class DatabaseManager: ObservableObject {
       }
    }
    
+   func updateFoodEntryThreadSafe(_ entry: FoodEntry, completion: @escaping (Bool) -> Void) {
+      operationQueue.addOperation {
+         let success = self.updateFoodEntrySync(entry)
+         DispatchQueue.main.async {
+            completion(success)
+         }
+      }
+   }
+   
    func searchFoodsThreadSafe(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
       operationQueue.addOperation {
          let foods = self.searchFoodsSync(query: query, limit: limit)
@@ -505,10 +514,11 @@ class DatabaseManager: ObservableObject {
       }
    }
    
-   // Enhanced search with fuzzy matching and API integration
+   // Enhanced search with fuzzy matching and non-blocking API integration
    func searchFoodsWithFuzzyMatching(query: String, limit: Int = 20, completion: @escaping ([Food]) -> Void) {
       operationQueue.addOperation {
          var allResults: [Food] = []
+         var hasCompletedOnce = false
          
          let exactResults = self.performExactSearch(query: query, limit: limit/4)
          allResults.append(contentsOf: exactResults)
@@ -531,29 +541,41 @@ class DatabaseManager: ObservableObject {
             allResults.append(contentsOf: fuzzyResults)
          }
          
-         if allResults.count < 3 {
-            Task {
-               do {
-                  let apiResults = try await APIManager.shared.searchByText(query)
-                  let filteredAPIResults = self.filterAPIResultsForDuplicates(apiResults, existingResults: allResults)
-                  allResults.append(contentsOf: filteredAPIResults)
+         // Return local results immediately
+         let localResults = self.sortFoodsByRelevance(allResults, query: query)
+         let shouldFetchAPI = allResults.count < 3
+         
+         // If we have sufficient local results or shouldn't fetch API, return immediately
+         if !shouldFetchAPI {
+            DispatchQueue.main.async {
+               completion(localResults)
+            }
+            return
+         }
+         
+         // Return local results first, then try to enhance with API results
+         DispatchQueue.main.async {
+            hasCompletedOnce = true
+            completion(localResults)
+         }
+         
+         // Fetch API results asynchronously without blocking
+         Task {
+            do {
+               let apiResults = try await APIManager.shared.searchByText(query)
+               let filteredAPIResults = self.filterAPIResultsForDuplicates(apiResults, existingResults: allResults)
+               
+               if !filteredAPIResults.isEmpty && hasCompletedOnce {
+                  let combinedResults = allResults + filteredAPIResults
+                  let finalResults = self.sortFoodsByRelevance(combinedResults, query: query)
                   
-                  let finalResults = self.sortFoodsByRelevance(allResults, query: query)
-                  
-                  DispatchQueue.main.async {
-                     completion(finalResults)
-                  }
-               } catch {
-                  let finalResults = self.sortFoodsByRelevance(allResults, query: query)
                   DispatchQueue.main.async {
                      completion(finalResults)
                   }
                }
-            }
-         } else {
-            let finalResults = self.sortFoodsByRelevance(allResults, query: query)
-            DispatchQueue.main.async {
-               completion(finalResults)
+            } catch {
+               print("⚠️ API search failed for '\(query)': \(error.localizedDescription)")
+               // Don't call completion again - local results were already returned
             }
          }
       }
@@ -845,6 +867,46 @@ class DatabaseManager: ObservableObject {
             } else {
                sqlite3_bind_null(statement, 6)
             }
+            
+            if sqlite3_step(statement) == SQLITE_DONE {
+               success = true
+            }
+         } catch {
+            // Handle error silently
+         }
+      }
+      
+      sqlite3_finalize(statement)
+      return success
+   }
+   
+   // Update existing food entry in database
+   private func updateFoodEntrySync(_ entry: FoodEntry) -> Bool {
+      let updateSQL = "UPDATE FoodEntries SET food_data = ?, quantity = ?, meal_type = ?, notes = ? WHERE id = ?"
+      
+      var statement: OpaquePointer?
+      var success = false
+      
+      if sqlite3_prepare_v2(db, updateSQL, -1, &statement, nil) == SQLITE_OK {
+         do {
+            let encoder = JSONEncoder()
+            let foodData = try encoder.encode(entry.food)
+            guard let foodString = String(data: foodData, encoding: .utf8) else {
+               sqlite3_finalize(statement)
+               return false
+            }
+            
+            sqlite3_bind_text(statement, 1, foodString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_double(statement, 2, entry.quantity)
+            sqlite3_bind_text(statement, 3, entry.mealType.rawValue, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            
+            if let notes = entry.notes {
+               sqlite3_bind_text(statement, 4, notes, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            } else {
+               sqlite3_bind_null(statement, 4)
+            }
+            
+            sqlite3_bind_text(statement, 5, entry.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             
             if sqlite3_step(statement) == SQLITE_DONE {
                success = true

@@ -10,6 +10,7 @@ enum APIError: Error, LocalizedError {
     case serverError(Int)
     case noData
     case rateLimitExceeded
+    case circuitBreakerOpen
     
     var errorDescription: String? {
         switch self {
@@ -29,6 +30,8 @@ enum APIError: Error, LocalizedError {
             return "No data received from server"
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
+        case .circuitBreakerOpen:
+            return "API temporarily unavailable due to recent failures. Please try again later."
         }
     }
 }

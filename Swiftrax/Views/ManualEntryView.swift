@@ -1,9 +1,12 @@
 import SwiftUI
 
+import SwiftUI
+
 struct ManualEntryView: View {
     @State private var mealType: MealType = .breakfast
     @State private var foodName = ""
     @State private var brand = ""
+    @State private var barcode = ""
     @State private var servingSize = ""
     @State private var servingUnit: MeasurementUnit = .grams
     @State private var calories = ""
@@ -19,6 +22,7 @@ struct ManualEntryView: View {
     @State private var isAdvancedMode = false
     @State private var showingValidationError = false
     @State private var validationErrorMessage = ""
+    @State private var showingBarcodeScanner = false
    
    private let screenWidth = UIScreen.main.bounds.width
    private let screenHeight = UIScreen.main.bounds.height
@@ -26,7 +30,7 @@ struct ManualEntryView: View {
     @FocusState private var focusedField: Field?
     
     enum Field {
-        case foodName, brand, servingSize, calories, protein, carbohydrates, fat, fiber, sugar, sodium
+        case foodName, brand, barcode, servingSize, calories, protein, carbohydrates, fat, fiber, sugar, sodium
     }
     
     @Environment(\.presentationMode) var presentationMode
@@ -62,8 +66,58 @@ struct ManualEntryView: View {
                         .focused($focusedField, equals: .brand)
                         .autocapitalization(.words)
                         .onSubmit {
-                            focusedField = .servingSize
+                            focusedField = .barcode
                         }
+                }
+                
+                // Barcode Section
+                Section(header: HStack {
+                    Text("Barcode (optional)")
+                    Spacer()
+                    Text("For easy future scanning")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }) {
+                    HStack {
+                        TextField("Enter barcode manually", text: $barcode)
+                            .focused($focusedField, equals: .barcode)
+                            .keyboardType(.numberPad)
+                            .onSubmit {
+                                focusedField = .servingSize
+                            }
+                        
+                        Button(action: {
+                            focusedField = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                showingBarcodeScanner = true
+                            }
+                        }) {
+                            Image(systemName: "barcode.viewfinder")
+                                .foregroundColor(.blue)
+                                .font(.title3)
+                        }
+                        .accessibilityLabel("Scan barcode")
+                    }
+                    
+                    if !barcode.isEmpty {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("Barcode added - this food will be findable by scanning")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text("Add a barcode to easily find this food later by scanning")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
                 
                 // Enhanced Serving Size with Unit Picker
@@ -317,6 +371,14 @@ struct ManualEntryView: View {
         } message: {
             Text(validationErrorMessage)
         }
+        .sheet(isPresented: $showingBarcodeScanner) {
+            BarcodeScannerView { scannedBarcode in
+                Task { @MainActor in
+                    barcode = scannedBarcode
+                    showingBarcodeScanner = false
+                }
+            }
+        }
     }
     
     private var isValid: Bool {
@@ -341,6 +403,20 @@ struct ManualEntryView: View {
         let trimmedName = foodName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
             return (false, "Food name is required")
+        }
+        
+        // Validate barcode if provided
+        let trimmedBarcode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedBarcode.isEmpty {
+            // Check if barcode contains only numbers
+            if !trimmedBarcode.allSatisfy({ $0.isNumber }) {
+                return (false, "Barcode must contain only numbers")
+            }
+            
+            // Check if barcode is reasonable length (most barcodes are 8-14 digits)
+            if trimmedBarcode.count < 4 || trimmedBarcode.count > 20 {
+                return (false, "Barcode must be between 4 and 20 digits")
+            }
         }
         
         guard !servingSize.isEmpty else {
@@ -426,6 +502,7 @@ struct ManualEntryView: View {
         
         let food = Food(
             name: savedFoodName,
+            barcode: barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : barcode.trimmingCharacters(in: .whitespacesAndNewlines),
             nutritionInfo: nutritionInfo,
             servingSize: Double(servingSize) ?? 1,
             servingSizeUnit: servingUnit.abbreviation,
@@ -434,6 +511,9 @@ struct ManualEntryView: View {
         )
         
         print("Saving custom food: \(food.name) to database")
+        if let foodBarcode = food.barcode {
+            print("Food has barcode: \(foodBarcode) - will be scannable in the future")
+        }
         
         DatabaseManager.shared.saveFoodThreadSafe(food) { success in
             Task { @MainActor in
@@ -454,7 +534,11 @@ struct ManualEntryView: View {
                                 
                                 NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
                                 
-                                self.successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!"
+                                let barcodeMessage = !barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
+                                    ? " You can now find this food by scanning its barcode!"
+                                    : ""
+                                
+                                self.successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!\(barcodeMessage)"
                                 self.showingSuccessAlert = true
                             } else {
                                 self.validationErrorMessage = "Failed to save food entry. Please try again."
@@ -475,6 +559,7 @@ struct ManualEntryView: View {
         Task { @MainActor in
             foodName = ""
             brand = ""
+            barcode = ""
             servingSize = ""
             calories = ""
             protein = ""
@@ -492,7 +577,8 @@ struct ManualEntryView: View {
     private func moveToNextField() {
         switch focusedField {
         case .foodName: focusedField = .brand
-        case .brand: focusedField = .servingSize
+        case .brand: focusedField = .barcode
+        case .barcode: focusedField = .servingSize
         case .servingSize: focusedField = .calories
         case .calories: focusedField = .protein
         case .protein: focusedField = .carbohydrates
@@ -507,7 +593,8 @@ struct ManualEntryView: View {
     private func moveToPreviousField() {
         switch focusedField {
         case .brand: focusedField = .foodName
-        case .servingSize: focusedField = .brand
+        case .barcode: focusedField = .brand
+        case .servingSize: focusedField = .barcode
         case .calories: focusedField = .servingSize
         case .protein: focusedField = .calories
         case .carbohydrates: focusedField = .protein

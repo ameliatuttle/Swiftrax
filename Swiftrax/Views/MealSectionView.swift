@@ -4,6 +4,7 @@ struct MealSectionView: View {
     let mealType: MealType
     let entries: [FoodEntry]
     let onDeleteEntry: (FoodEntry) -> Void
+    let onEditEntry: ((FoodEntry) -> Void)?
     @Environment(\.colorScheme) var colorScheme
     
     // Calculates total nutrition for all entries in this meal
@@ -51,6 +52,9 @@ struct MealSectionView: View {
                             entry: entry,
                             onDelete: {
                                 onDeleteEntry(entry)
+                            },
+                            onEdit: onEditEntry.map { callback in
+                                { callback(entry) }
                             }
                         )
                     }
@@ -81,6 +85,7 @@ struct MealSectionView: View {
 struct FoodRowView: View {
     let entry: FoodEntry
     let onDelete: () -> Void
+    let onEdit: (() -> Void)?
     @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
@@ -97,6 +102,13 @@ struct FoodRowView: View {
                         Text(brand)
                             .font(.caption)
                             .foregroundColor(Color.adaptiveSecondaryText)
+                    }
+                    
+                    // Show barcode indicator if food has barcode
+                    if entry.food.barcode != nil {
+                        Image(systemName: "barcode")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
                     }
                     
                     Spacer()
@@ -129,13 +141,26 @@ struct FoodRowView: View {
                    Color.black.opacity(0.06),
             radius: 2, x: 0, y: 1
         )
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let onEdit = onEdit {
+                Button("Edit") {
+                    onEdit()
+                }
+                .tint(.blue)
+            }
+            
             Button("Delete", role: .destructive) {
                 onDelete()
             }
             .tint(Color.destructiveAction)
         }
         .contextMenu {
+            if let onEdit = onEdit {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+            
             Button("Delete", role: .destructive) {
                 onDelete()
             }

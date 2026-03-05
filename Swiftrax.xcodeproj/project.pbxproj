@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AF79CA6C2F5945D000A87718 /* EditQuantityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF79CA6B2F5945D000A87718 /* EditQuantityView.swift */; };
 		AFE82EE92E2DA63300C471A8 /* Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AFE82EE82E2DA63300C471A8 /* Launch Screen.storyboard */; };
 /* End PBXBuildFile section */
 
@@ -31,6 +32,7 @@
 		AF2054BB2DD993C100321F46 /* Swiftrax.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Swiftrax.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF2054D02DD993C700321F46 /* SwiftraxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftraxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF2054DA2DD993C800321F46 /* SwiftraxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftraxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF79CA6B2F5945D000A87718 /* EditQuantityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditQuantityView.swift; sourceTree = "<group>"; };
 		AFE82EE82E2DA63300C471A8 /* Launch Screen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = "Launch Screen.storyboard"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -98,6 +100,7 @@
 				AF2054D32DD993C700321F46 /* SwiftraxTests */,
 				AF2054DD2DD993C800321F46 /* SwiftraxUITests */,
 				AF2054BC2DD993C100321F46 /* Products */,
+				AF79CA6B2F5945D000A87718 /* EditQuantityView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -256,6 +259,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AF79CA6C2F5945D000A87718 /* EditQuantityView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

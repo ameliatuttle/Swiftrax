@@ -16,11 +16,11 @@ struct OpenFoodFactsAPI {
     
     private struct OpenFoodFactsSearchResponse: Codable {
         let products: [OFFProduct]
-        let count: Int
-        let page: Int
-        let pageCount: Int
-        let pageSize: Int
-        let skip: Int
+        let count: Int?
+        let page: Int?
+        let pageCount: Int?
+        let pageSize: Int?
+        let skip: Int?
         
         enum CodingKeys: String, CodingKey {
             case products, count, page
@@ -33,7 +33,7 @@ struct OpenFoodFactsAPI {
     private struct OFFProduct: Codable {
         let code: String?
         let productName: String?
-        let nutriments: OFFNutriments
+        let nutriments: OFFNutriments?
         let brands: String?
         let categories: String?
         let quantity: String?
@@ -119,33 +119,156 @@ struct OpenFoodFactsAPI {
     
     // Search for foods by text query
     static func searchByText(_ query: String, pageSize: Int = 25, using apiManager: APIManager) async throws -> [Food] {
+        // Check cache first - use a normalized cache key for searches
+        let normalizedQuery = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = NSString(string: "search:\(normalizedQuery):\(pageSize)")
+        if let cachedData = apiManager.searchCache.object(forKey: cacheKey) as Data? {
+            let decoder = JSONDecoder()
+            if let cachedResult = try? decoder.decode([Food].self, from: cachedData) {
+                print("🎯 Search cache hit for: '\(query)' - returning \(cachedResult.count) cached results")
+                return cachedResult
+            }
+        }
+        
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         
-        let urlString = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=\(encodedQuery)&search_simple=1&action=process&json=1&page_size=\(pageSize)&fields=code,product_name,nutriments,brands,categories,quantity,serving_size"
+        let urlString = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=\(encodedQuery)&search_simple=1&action=process&json=1&page_size=\(pageSize)"
         
         guard let url = URL(string: urlString) else {
             throw APIError.invalidURL
         }
         
+        print("🌐 Searching OpenFoodFacts for: '\(query)'")
+        print("🌐 URL: \(urlString)")
+        
         let headers = [
             "User-Agent": "SwiftTrax/1.0 (contact@swifttrax.app)"
         ]
         
-        let response = try await apiManager.request(
-            url: url,
-            headers: headers,
-            responseType: OpenFoodFactsSearchResponse.self
-        )
-        
-        print("API search for '\(query)' returned \(response.products.count) products")
-        
-        let foods = response.products.compactMap { product in
-            convertToFood(product: product, barcode: product.code)
+        do {
+            let response = try await apiManager.request(
+                url: url,
+                headers: headers,
+                responseType: OpenFoodFactsSearchResponse.self
+            )
+            
+            print("🌐 API search for '\(query)' returned \(response.products.count) raw products")
+            
+            let foods = response.products.compactMap { product in
+                convertToFood(product: product, barcode: product.code)
+            }
+            
+            print("🌐 After conversion: \(foods.count) valid foods")
+            
+            let filteredFoods = filterAndSortResults(foods: foods, query: query)
+            
+            print("🌐 After filtering: \(filteredFoods.count) foods")
+            
+            // Cache the successful search result
+            if let cacheData = try? JSONEncoder().encode(filteredFoods) {
+                let cacheKey = NSString(string: "search:\(normalizedQuery):\(pageSize)")
+                apiManager.searchCache.setObject(cacheData as NSData, forKey: cacheKey, cost: cacheData.count)
+                print("💾 Cached search results for: '\(query)'")
+            }
+            
+            return filteredFoods
+        } catch {
+            print("❌ OpenFoodFacts API error for '\(query)': \(error)")
+            
+            // Try a fallback approach with minimal parsing
+            do {
+                print("🔄 Trying fallback API approach...")
+                return try await fallbackSearch(query: query, using: apiManager)
+            } catch let fallbackError {
+                print("❌ Fallback search also failed: \(fallbackError)")
+                throw error // Throw the original error
+            }
         }
+    }
+    
+    // Fallback search with minimal data structure requirements
+    private static func fallbackSearch(query: String, using apiManager: APIManager) async throws -> [Food] {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let urlString = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=\(encodedQuery)&json=1&page_size=10"
+        
+        guard let url = URL(string: urlString) else {
+            throw APIError.invalidURL
+        }
+        
+        // Use raw JSON parsing for maximum flexibility
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let productsArray = jsonObject["products"] as? [[String: Any]] else {
+            throw APIError.decodingError
+        }
+        
+        print("🔄 Fallback found \(productsArray.count) raw products")
+        
+        let foods: [Food] = productsArray.compactMap { productDict in
+            return createFoodFromDictionary(productDict)
+        }
+        
+        print("🔄 Fallback converted \(foods.count) foods")
         
         let filteredFoods = filterAndSortResults(foods: foods, query: query)
         
+        // Cache the fallback result too
+        if let cacheData = try? JSONEncoder().encode(filteredFoods) {
+            let normalizedQuery = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let cacheKey = NSString(string: "search:\(normalizedQuery):10") // fallback uses page size 10
+            apiManager.searchCache.setObject(cacheData as NSData, forKey: cacheKey, cost: cacheData.count)
+            print("💾 Cached fallback search results for: '\(query)'")
+        }
+        
         return filteredFoods
+    }
+    
+    // Create a Food object from a raw dictionary (fallback method)
+    private static func createFoodFromDictionary(_ dict: [String: Any]) -> Food? {
+        guard let productName = dict["product_name"] as? String,
+              !productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        
+        guard let nutrimentsDict = dict["nutriments"] as? [String: Any] else {
+            return nil
+        }
+        
+        let getDouble = { (key: String) -> Double? in
+            if let value = nutrimentsDict[key] as? Double {
+                return value
+            } else if let value = nutrimentsDict[key] as? String {
+                return Double(value)
+            }
+            return nil
+        }
+        
+        let calories = getDouble("energy-kcal_100g") ?? (getDouble("energy_100g") != nil ? (getDouble("energy_100g")! / 4.184) : 0)
+        
+        let nutritionInfo = NutritionInfo(
+            calories: calories,
+            protein: getDouble("proteins_100g"),
+            carbohydrates: getDouble("carbohydrates_100g"),
+            fat: getDouble("fat_100g"),
+            fiber: getDouble("fiber_100g"),
+            sugar: getDouble("sugars_100g"),
+            sodium: getDouble("sodium_100g")
+        )
+        
+        let brand = (dict["brands"] as? String)?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let barcode = dict["code"] as? String
+        
+        return Food(
+            name: cleanFoodName(productName),
+            barcode: barcode,
+            nutritionInfo: nutritionInfo,
+            servingSize: 100,
+            servingSizeUnit: "g",
+            brand: brand,
+            isCustom: false,
+            source: "OpenFoodFacts"
+        )
     }
     
     // Filter and sort search results for relevance
@@ -209,10 +332,15 @@ struct OpenFoodFactsAPI {
     private static func convertToFood(product: OFFProduct, barcode: String?) -> Food? {
         guard let productName = product.productName,
               !productName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            print("⚠️ Skipping product with missing name")
             return nil
         }
         
-        let nutriments = product.nutriments
+        // Handle missing nutriments gracefully
+        guard let nutriments = product.nutriments else {
+            print("⚠️ Skipping product '\(productName)' with missing nutriments")
+            return nil
+        }
         
         let rawCalories = nutriments.energyKcalServing
             ?? nutriments.energyKcal

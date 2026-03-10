@@ -97,9 +97,9 @@ struct SettingsView: View {
                     }
                     
                     // Cleanup Duplicates Button
-                    Button(action: {
+                    Button {
                         showingCleanupAlert = true
-                    }) {
+                    } label: {
                         HStack {
                             if isCleaningUp {
                                 ProgressView()
@@ -115,9 +115,9 @@ struct SettingsView: View {
                     .disabled(isCleaningUp || duplicateCount == 0)
                     
                     // Reseed Basic Foods Button
-                    Button(action: {
+                    Button {
                         reseedBasicFoods()
-                    }) {
+                    } label: {
                         HStack {
                             Image(systemName: "arrow.clockwise")
                             Text("Reseed Basic Foods")

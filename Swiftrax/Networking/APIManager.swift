@@ -14,15 +14,16 @@ class APIManager: ObservableObject {
     
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10  // Reduced from 30
-        config.timeoutIntervalForResource = 20 // Reduced from 60
+        config.timeoutIntervalForRequest = 6   // Reduced from 10
+        config.timeoutIntervalForResource = 12 // Reduced from 20
         config.waitsForConnectivity = true
         config.requestCachePolicy = .returnCacheDataElseLoad
+        config.urlCache = URLCache(memoryCapacity: 5 * 1024 * 1024, diskCapacity: 20 * 1024 * 1024) // 5MB memory, 20MB disk
         self.session = URLSession(configuration: config)
         
         // Configure cache
-        cache.countLimit = 100
-        cache.totalCostLimit = 10 * 1024 * 1024 // 10MB
+        cache.countLimit = 200 // Increased from 100
+        cache.totalCostLimit = 20 * 1024 * 1024 // Increased to 20MB
     }
     
     private var isCircuitBreakerOpen: Bool {
@@ -137,8 +138,22 @@ class APIManager: ObservableObject {
                 throw APIError.noData
             }
             
+            // Debug: Log raw response for troubleshooting
+            if let rawString = String(data: data, encoding: .utf8) {
+                print("🔍 API Response for \(url.absoluteString): \(rawString.prefix(500))...")
+            }
+            
             let decoder = JSONDecoder()
-            return try decoder.decode(responseType, from: data)
+            do {
+                return try decoder.decode(responseType, from: data)
+            } catch let decodingError as DecodingError {
+                print("❌ Decoding error for \(url.absoluteString):")
+                print("   Error: \(decodingError)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("   Raw JSON: \(jsonString)")
+                }
+                throw APIError.decodingError
+            }
             
         } catch is DecodingError {
             throw APIError.decodingError
@@ -191,6 +206,26 @@ class APIManager: ObservableObject {
         print("🔄 API connection state reset - cache cleared")
     }
     
+    // Test API connectivity with a simple request
+    func testAPIConnectivity() async -> Bool {
+        do {
+            let testUrl = URL(string: "https://world.openfoodfacts.org/api/v2/product/737628064502")!
+            let (data, response) = try await session.data(from: testUrl)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("🧪 API Test - Status: \(httpResponse.statusCode)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("🧪 API Test - Response length: \(jsonString.count) characters")
+                }
+                return httpResponse.statusCode == 200
+            }
+            return false
+        } catch {
+            print("🧪 API Test failed: \(error)")
+            return false
+        }
+    }
+    
     // Get current API health status
     func getHealthStatus() -> (isHealthy: Bool, failureCount: Int, circuitBreakerOpen: Bool) {
         return (
@@ -207,5 +242,10 @@ class APIManager: ObservableObject {
         responseType: T.Type
     ) async throws -> T {
         return try await performRequest(url: url, headers: headers, responseType: responseType)
+    }
+    
+    // Expose cache for API implementations that need direct access
+    internal var searchCache: NSCache<NSString, NSData> {
+        return self.cache
     }
 }

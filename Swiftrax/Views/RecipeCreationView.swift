@@ -2,6 +2,8 @@ import SwiftUI
 
 // Main view for creating new recipes with ingredients and nutrition tracking
 struct RecipeCreationView: View {
+    let editingRecipe: Recipe?
+    let isEditing: Bool
     @State private var recipeName = ""
     @State private var servings = "4"
     @State private var ingredients: [RecipeIngredient] = []
@@ -11,7 +13,35 @@ struct RecipeCreationView: View {
     @State private var showingQuantityEntry = false
     @State private var selectedFood: Food?
     
+    // New: Serving weight specification
+    @State private var hasServingWeight = false
+    @State private var servingWeight = ""
+    @State private var servingWeightUnit: MeasurementUnit = .grams
+    @State private var showingServingWeightUnitPicker = false
+    
     @Environment(\.presentationMode) var presentationMode
+    
+    // Available weight units for serving weight
+    private let weightUnits: [MeasurementUnit] = [.grams, .kilograms, .ounces, .pounds]
+    
+    init(editingRecipe: Recipe? = nil) {
+        self.editingRecipe = editingRecipe
+        self.isEditing = editingRecipe != nil
+        
+        // Pre-populate fields if editing
+        if let recipe = editingRecipe {
+            self._recipeName = State(initialValue: recipe.name)
+            self._servings = State(initialValue: String(recipe.servings))
+            self._ingredients = State(initialValue: recipe.ingredients)
+            
+            // Handle serving weight
+            if let weight = recipe.servingWeight {
+                self._hasServingWeight = State(initialValue: true)
+                self._servingWeight = State(initialValue: weight.formattedNutrition)
+                self._servingWeightUnit = State(initialValue: recipe.servingWeightUnit ?? .grams)
+            }
+        }
+    }
     
     var body: some View {
         NavigationView {
@@ -31,9 +61,59 @@ struct RecipeCreationView: View {
                 }
                 
                 Section {
-                    Button(action: {
+                    Toggle("Specify serving weight", isOn: $hasServingWeight)
+                        .toggleStyle(SwitchToggleStyle())
+                    
+                    if hasServingWeight {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("Weight per serving:")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            
+                            HStack(spacing: 12) {
+                                TextField("Weight", text: $servingWeight)
+                                    .keyboardType(.decimalPad)
+                                    .font(.body)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(Color(.systemGray6))
+                                    .cornerRadius(8)
+                                
+                                Button {
+                                    showingServingWeightUnitPicker = true
+                                } label: {
+                                    HStack {
+                                        Text(servingWeightUnit.abbreviation)
+                                            .font(.body)
+                                            .foregroundColor(.blue)
+                                        Image(systemName: "chevron.down")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(8)
+                                }
+                            }
+                            
+                            Text("This allows the recipe to be logged with precise portions")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Serving Details")
+                }
+                
+                Section {
+                    Button {
                         showingAddIngredient = true
-                    }) {
+                    } label: {
                         HStack {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundColor(.blue)
@@ -71,8 +151,10 @@ struct RecipeCreationView: View {
                 }
                 
                 Section {
-                    Button(action: saveRecipe) {
-                        Text("Create Recipe")
+                    Button {
+                        saveRecipe()
+                    } label: {
+                        Text(isEditing ? "Save Changes" : "Create Recipe")
                             .frame(maxWidth: .infinity)
                             .foregroundColor(isValid ? .white : .secondary)
                     }
@@ -80,7 +162,7 @@ struct RecipeCreationView: View {
                     .disabled(!isValid)
                 }
             }
-            .navigationTitle("Create Recipe")
+            .navigationTitle(isEditing ? "Edit Recipe" : "Create Recipe")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
                 leading: Button("Cancel") {
@@ -93,12 +175,11 @@ struct RecipeCreationView: View {
             showingQuantityEntry = false
         }) {
             if let food = selectedFood, showingQuantityEntry {
-                // Show quantity entry
-               RecipeQuantityEntryView(food: food) { quantity in
-                   let ingredient = RecipeIngredient(food: food, quantity: quantity)
+                // Show quantity entry with unit selection
+               RecipeQuantityEntryView(food: food) { quantity, unit in
+                   let ingredient = RecipeIngredient(food: food, quantity: quantity, unit: unit)
                    addIngredient(ingredient)
-                   showingAddIngredient = false  // Close sheet first
-                   // Don't set selectedFood = nil here
+                   showingAddIngredient = false
                }
             } else {
                 // Show search
@@ -110,7 +191,18 @@ struct RecipeCreationView: View {
                })
             }
         }
-        .alert("Recipe Created!", isPresented: $showingSuccessAlert) {
+        .actionSheet(isPresented: $showingServingWeightUnitPicker) {
+            ActionSheet(
+                title: Text("Select Unit"),
+                message: Text("Choose the unit for serving weight"),
+                buttons: weightUnits.map { unit in
+                    .default(Text("\(unit.displayName) (\(unit.abbreviation))")) {
+                        servingWeightUnit = unit
+                    }
+                } + [.cancel()]
+            )
+        }
+        .alert(isEditing ? "Recipe Updated!" : "Recipe Created!", isPresented: $showingSuccessAlert) {
             Button("OK") {
                 presentationMode.wrappedValue.dismiss()
             }
@@ -122,20 +214,45 @@ struct RecipeCreationView: View {
     // Calculates recipe with current form values
     private var calculatedRecipe: Recipe {
         let servingCount = Int(servings) ?? 1
-        return Recipe(
-            name: recipeName,
-            servings: servingCount,
-            ingredients: ingredients
-        )
+        let weight = hasServingWeight ? Double(servingWeight) : nil
+        let weightUnit = hasServingWeight ? servingWeightUnit : nil
+        
+        if isEditing, let editingRecipe = editingRecipe {
+            return Recipe(
+                from: editingRecipe,
+                name: recipeName,
+                servings: servingCount,
+                ingredients: ingredients,
+                servingWeight: weight,
+                servingWeightUnit: weightUnit
+            )
+        } else {
+            return Recipe(
+                name: recipeName,
+                servings: servingCount,
+                ingredients: ingredients,
+                servingWeight: weight,
+                servingWeightUnit: weightUnit
+            )
+        }
     }
     
     // Validates form is complete and ready to save
     private var isValid: Bool {
-        !recipeName.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !servings.isEmpty &&
-        Int(servings) != nil &&
-        Int(servings) ?? 0 > 0 &&
-        !ingredients.isEmpty
+        let basicValid = !recipeName.trimmingCharacters(in: .whitespaces).isEmpty &&
+                        !servings.isEmpty &&
+                        Int(servings) != nil &&
+                        Int(servings) ?? 0 > 0 &&
+                        !ingredients.isEmpty
+        
+        if hasServingWeight {
+            let weightValid = !servingWeight.isEmpty &&
+                            Double(servingWeight) != nil &&
+                            Double(servingWeight) ?? 0 > 0
+            return basicValid && weightValid
+        }
+        
+        return basicValid
     }
     
     private func addIngredient(_ ingredient: RecipeIngredient) {
@@ -151,14 +268,25 @@ struct RecipeCreationView: View {
         guard isValid else { return }
         
         let recipe = calculatedRecipe
-        print("Saving recipe: \(recipe.name)")
+        print(isEditing ? "Updating recipe: \(recipe.name) with ID: \(recipe.id)" : "Saving recipe: \(recipe.name)")
+        
+        // For debugging: Print the recipe ID to verify it's the same when editing
+        if isEditing, let originalRecipe = editingRecipe {
+            print("Original recipe ID: \(originalRecipe.id)")
+            print("Updated recipe ID: \(recipe.id)")
+            print("IDs match: \(originalRecipe.id == recipe.id)")
+        }
         
         DatabaseManager.shared.saveRecipeAsync(recipe) {
-            print("Recipe saved successfully")
-            NotificationCenter.default.post(name: NSNotification.Name("RecipeCreated"), object: nil)
+            print(self.isEditing ? "Recipe updated successfully" : "Recipe saved successfully")
             
-            successMessage = "\(recipe.name) has been created with \(recipe.ingredients.count) ingredients!"
-            showingSuccessAlert = true
+            // Send appropriate notification with the recipe object
+            let notificationName = self.isEditing ? "RecipeUpdated" : "RecipeCreated"
+            NotificationCenter.default.post(name: NSNotification.Name(notificationName), object: recipe)
+            
+            let actionText = self.isEditing ? "updated" : "created"
+            self.successMessage = "\(recipe.name) has been \(actionText) with \(recipe.ingredients.count) ingredients!"
+            self.showingSuccessAlert = true
         }
     }
 }
@@ -166,16 +294,26 @@ struct RecipeCreationView: View {
 // Dedicated view for entering ingredient quantities when adding to recipes
 struct RecipeQuantityEntryView: View {
     let food: Food
-    let onQuantitySelected: (Double) -> Void
+    let onQuantitySelected: (Double, MeasurementUnit) -> Void
     
     @State private var quantity = ""
-    @State private var selectedUnit: String
+    @State private var selectedUnit: MeasurementUnit
+    @State private var showingUnitPicker = false
     @Environment(\.presentationMode) var presentationMode
     
-    init(food: Food, onQuantitySelected: @escaping (Double) -> Void) {
+    // Available units for this food
+    private var availableUnits: [MeasurementUnit] {
+        let baseUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        return UnitConverter.shared.getSuggestedUnits(for: food)
+    }
+    
+    init(food: Food, onQuantitySelected: @escaping (Double, MeasurementUnit) -> Void) {
         self.food = food
         self.onQuantitySelected = onQuantitySelected
-        self._selectedUnit = State(initialValue: food.servingSizeUnit)
+        
+        // Default to the food's original unit
+        let defaultUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        self._selectedUnit = State(initialValue: defaultUnit)
         self._quantity = State(initialValue: String(food.servingSize))
     }
     
@@ -250,19 +388,30 @@ struct RecipeQuantityEntryView: View {
                             .background(Color.gray.opacity(0.1))
                             .cornerRadius(12)
                         
-                        VStack(spacing: 4) {
-                            Text(selectedUnit)
-                                .font(.title3)
-                                .fontWeight(.bold)
-                            
-                            Text("unit")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                        Button {
+                            showingUnitPicker = true
+                        } label: {
+                            VStack(spacing: 4) {
+                                Text(selectedUnit.abbreviation)
+                                    .font(.title3)
+                                    .fontWeight(.bold)
+                                
+                                Text("tap to change")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundColor(.blue)
+                            .cornerRadius(12)
                         }
-                        .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .cornerRadius(12)
+                    }
+                    
+                    // Unit category info
+                    if availableUnits.count > 1 {
+                        Text("Available: \(availableUnits.map { $0.abbreviation }.joined(separator: ", "))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     
                     Text("This is how much of this ingredient you'll use in the recipe")
@@ -276,15 +425,11 @@ struct RecipeQuantityEntryView: View {
                             .font(.headline)
                             .fontWeight(.semibold)
                         
-                        let scale = quantityValue / food.servingSize
-                        let scaledCalories = (food.nutritionInfo.calories ?? 0) * scale
-                        let scaledProtein = (food.nutritionInfo.protein ?? 0) * scale
-                        let scaledCarbs = (food.nutritionInfo.carbohydrates ?? 0) * scale
-                        let scaledFat = (food.nutritionInfo.fat ?? 0) * scale
+                        let nutrition = calculateNutritionContribution(quantityValue, selectedUnit)
                         
                         HStack {
                             VStack(spacing: 4) {
-                                Text("\(Int(scaledCalories))")
+                                Text("\(Int(nutrition.calories ?? 0))")
                                     .font(.title2)
                                     .fontWeight(.bold)
                                     .foregroundColor(.orange)
@@ -297,7 +442,7 @@ struct RecipeQuantityEntryView: View {
                             
                             HStack(spacing: 20) {
                                 VStack(spacing: 2) {
-                                    Text("\(scaledProtein.formattedNutrition)g")
+                                    Text("\((nutrition.protein ?? 0).formattedNutrition)g")
                                         .font(.subheadline)
                                         .fontWeight(.semibold)
                                         .foregroundColor(.red)
@@ -307,7 +452,7 @@ struct RecipeQuantityEntryView: View {
                                 }
                                 
                                 VStack(spacing: 2) {
-                                    Text("\(scaledCarbs.formattedNutrition)g")
+                                    Text("\((nutrition.carbohydrates ?? 0).formattedNutrition)g")
                                         .font(.subheadline)
                                         .fontWeight(.semibold)
                                         .foregroundColor(.blue)
@@ -317,7 +462,7 @@ struct RecipeQuantityEntryView: View {
                                 }
                                 
                                 VStack(spacing: 2) {
-                                    Text("\(scaledFat.formattedNutrition)g")
+                                    Text("\((nutrition.fat ?? 0).formattedNutrition)g")
                                         .font(.subheadline)
                                         .fontWeight(.semibold)
                                         .foregroundColor(.purple)
@@ -335,12 +480,12 @@ struct RecipeQuantityEntryView: View {
                 
                 Spacer()
                 
-                Button(action: {
+                Button {
                     if let quantityValue = Double(quantity), quantityValue > 0 {
-                        onQuantitySelected(quantityValue)
+                        onQuantitySelected(quantityValue, selectedUnit)
                         presentationMode.wrappedValue.dismiss()
                     }
-                }) {
+                } label: {
                     HStack {
                         Image(systemName: "plus.circle.fill")
                         Text("Add to Recipe")
@@ -362,12 +507,47 @@ struct RecipeQuantityEntryView: View {
                     presentationMode.wrappedValue.dismiss()
                 }
             )
+            .actionSheet(isPresented: $showingUnitPicker) {
+                ActionSheet(
+                    title: Text("Select Unit"),
+                    message: Text("Choose the measurement unit for this ingredient"),
+                    buttons: availableUnits.map { unit in
+                        .default(Text("\(unit.displayName) (\(unit.abbreviation))")) {
+                            selectedUnit = unit
+                        }
+                    } + [.cancel()]
+                )
+            }
         }
     }
     
     private var isValid: Bool {
         guard let quantityValue = Double(quantity) else { return false }
         return quantityValue > 0
+    }
+    
+    private func calculateNutritionContribution(_ quantity: Double, _ unit: MeasurementUnit) -> NutritionInfo {
+        let originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        
+        let convertedQuantity: Double
+        if let converted = UnitConverter.shared.convert(value: quantity, from: unit, to: originalUnit) {
+            convertedQuantity = converted
+        } else {
+            convertedQuantity = quantity
+        }
+        
+        let scaleFactor = convertedQuantity / food.servingSize
+        let baseNutrition = food.nutritionInfo
+        
+        return NutritionInfo(
+            calories: (baseNutrition.calories ?? 0) * scaleFactor,
+            protein: (baseNutrition.protein ?? 0) * scaleFactor,
+            carbohydrates: (baseNutrition.carbohydrates ?? 0) * scaleFactor,
+            fat: (baseNutrition.fat ?? 0) * scaleFactor,
+            fiber: (baseNutrition.fiber ?? 0) * scaleFactor,
+            sugar: (baseNutrition.sugar ?? 0) * scaleFactor,
+            sodium: (baseNutrition.sodium ?? 0) * scaleFactor
+        )
     }
 }
 
@@ -403,7 +583,7 @@ struct IngredientRow: View {
                     .font(.body)
                     .fontWeight(.medium)
                 
-                Text("\(ingredient.quantity.formattedNutrition) \(ingredient.food.servingSizeUnit)")
+                Text(ingredient.displayText)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -420,7 +600,9 @@ struct IngredientRow: View {
                     .foregroundColor(.secondary)
             }
             
-            Button(action: onDelete) {
+            Button {
+                onDelete()
+            } label: {
                 Image(systemName: "minus.circle.fill")
                     .foregroundColor(.red)
             }

@@ -1,10 +1,12 @@
 // fix bounce back .onAppear
 
 import SwiftUI
+import Charts
 
 struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModelMain()
     @State private var selectedTimeRange: TimeRange = .week
+    @State private var selectedNutrient: NutrientType = .calories
     @State private var hasAppeared = false
     
     var body: some View {
@@ -57,28 +59,21 @@ struct HistoryView: View {
                                 .fontWeight(.bold)
                             
                             Spacer()
-                            
-                            HStack(spacing: 16) {
-                                Label("Actual", systemImage: "circle.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-                                
-                                Label("Goal", systemImage: "circle.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.gray.opacity(0.3))
-                            }
                         }
                         .padding(.horizontal)
                         
-                        DailyProgressBarChart(
+                        SingleNutrientChart(
                             dailyData: viewModel.dailyData,
-                            userGoals: viewModel.userGoals
+                            userGoals: viewModel.userGoals,
+                            timeRange: selectedTimeRange,
+                            selectedNutrient: selectedNutrient
                         )
                         
                         HistorySummaryView(
                             dailyData: viewModel.dailyData,
                             userGoals: viewModel.userGoals,
-                            timeRange: selectedTimeRange
+                            timeRange: selectedTimeRange,
+                            selectedNutrient: $selectedNutrient
                         )
                     }
                     .padding(.bottom)
@@ -87,6 +82,7 @@ struct HistoryView: View {
         }
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.large)
+        .navigationBarBackButtonHidden(true)
         .background(Color.appBackground)
         .onAppear {
             // Only load data on first appear or when explicitly refreshing
@@ -105,116 +101,36 @@ struct HistoryView: View {
     }
 }
 
-struct DailyProgressBarChart: View {
-    let dailyData: [DailyNutritionData]
-    let userGoals: NutritionGoals?
-    
-    private let chartHeight: CGFloat = 200
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { geometry in
-                let barWidth = max(20, (geometry.size.width - 32) / CGFloat(dailyData.count) - 8)
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .bottom, spacing: 8) {
-                        ForEach(dailyData.sorted(by: { $0.date < $1.date })) { data in
-                            DailyBarView(
-                                data: data,
-                                goals: userGoals,
-                                maxHeight: chartHeight - 40,
-                                barWidth: barWidth
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-            }
-            .frame(height: chartHeight)
-        }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
-        .padding(.horizontal)
-    }
-}
-
-struct DailyBarView: View {
-    let data: DailyNutritionData
-    let goals: NutritionGoals?
-    let maxHeight: CGFloat
-    let barWidth: CGFloat
-    
-    private var maxGoal: Double {
-        guard let goals = goals else { return 2500 }
-        return max(
-            goals.calorieGoal ?? 2000,
-            goals.proteinGoal ?? 150,
-            goals.carbGoal ?? 250,
-            goals.fatGoal ?? 80
-        )
-    }
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack(alignment: .bottom) {
-                if let calorieGoal = goals?.calorieGoal {
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(
-                            width: barWidth,
-                            height: CGFloat(calorieGoal / maxGoal) * maxHeight
-                        )
-                        .cornerRadius(4)
-                }
-                
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.blue.opacity(0.8), .blue],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(
-                        width: barWidth,
-                        height: CGFloat(data.totalCalories / maxGoal) * maxHeight
-                    )
-                    .cornerRadius(4)
-                
-                if let calorieGoal = goals?.calorieGoal {
-                    Rectangle()
-                        .fill(Color.orange)
-                        .frame(
-                            width: barWidth + 4,
-                            height: 2
-                        )
-                        .offset(y: -CGFloat(calorieGoal / maxGoal) * maxHeight)
-                }
-            }
-            
-            Text(formatDateForChart(data.date))
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-        }
-    }
-    
-    private func formatDateForChart(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M/d"
-        return formatter.string(from: date)
-    }
-}
 
 struct HistorySummaryView: View {
     let dailyData: [DailyNutritionData]
     let userGoals: NutritionGoals?
     let timeRange: TimeRange
+    @Binding var selectedNutrient: NutrientType
     
     private var averageCalories: Double {
         guard !dailyData.isEmpty else { return 0 }
         return dailyData.map { $0.totalCalories }.reduce(0, +) / Double(dailyData.count)
+    }
+    
+    private var averageProtein: Double {
+        guard !dailyData.isEmpty else { return 0 }
+        return dailyData.map { $0.totalProtein }.reduce(0, +) / Double(dailyData.count)
+    }
+    
+    private var averageCarbs: Double {
+        guard !dailyData.isEmpty else { return 0 }
+        return dailyData.map { $0.totalCarbs }.reduce(0, +) / Double(dailyData.count)
+    }
+    
+    private var averageFat: Double {
+        guard !dailyData.isEmpty else { return 0 }
+        return dailyData.map { $0.totalFat }.reduce(0, +) / Double(dailyData.count)
+    }
+    
+    private var averageFiber: Double {
+        guard !dailyData.isEmpty else { return 0 }
+        return dailyData.map { $0.totalFiber }.reduce(0, +) / Double(dailyData.count)
     }
     
     // Calculates days within 20% of calorie goal
@@ -228,7 +144,7 @@ struct HistorySummaryView: View {
     
     var body: some View {
         VStack(spacing: 16) {
-            Text("Summary")
+            Text("Average Daily Intake")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
@@ -236,68 +152,208 @@ struct HistorySummaryView: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: 16) {
-                SummaryCard(
-                    title: "Avg Daily Calories",
+                SelectableSummaryCard(
+                    title: "Avg Calories",
                     value: "\(Int(averageCalories))",
                     subtitle: "kcal",
-                    color: .blue
-                )
-                
-                SummaryCard(
-                    title: "Days On Track",
-                    value: "\(daysOnTrack)",
-                    subtitle: "out of \(dailyData.count)",
-                    color: .green
-                )
-                
-                if let calorieGoal = userGoals?.calorieGoal {
-                    let adherencePercentage = dailyData.isEmpty ? 0 : (averageCalories / calorieGoal) * 100
-                    SummaryCard(
-                        title: "Goal Adherence",
-                        value: "\(Int(adherencePercentage))%",
-                        subtitle: "of target",
-                        color: adherencePercentage >= 80 ? .green : .orange
-                    )
+                    color: .blue,
+                    nutrientType: .calories,
+                    isSelected: selectedNutrient == .calories
+                ) {
+                    selectedNutrient = .calories
                 }
                 
-                SummaryCard(
-                    title: "Total Days",
+                SelectableSummaryCard(
+                    title: "Avg Protein",
+                    value: "\(Int(averageProtein))",
+                    subtitle: "g",
+                    color: .red,
+                    nutrientType: .protein,
+                    isSelected: selectedNutrient == .protein
+                ) {
+                    selectedNutrient = .protein
+                }
+                
+                SelectableSummaryCard(
+                    title: "Avg Carbs",
+                    value: "\(Int(averageCarbs))",
+                    subtitle: "g",
+                    color: .green,
+                    nutrientType: .carbs,
+                    isSelected: selectedNutrient == .carbs
+                ) {
+                    selectedNutrient = .carbs
+                }
+                
+                SelectableSummaryCard(
+                    title: "Avg Fat",
+                    value: "\(Int(averageFat))",
+                    subtitle: "g",
+                    color: .purple,
+                    nutrientType: .fat,
+                    isSelected: selectedNutrient == .fat
+                ) {
+                    selectedNutrient = .fat
+                }
+                
+                if averageFiber > 0 {
+                    SelectableSummaryCard(
+                        title: "Avg Fiber",
+                        value: "\(Int(averageFiber))",
+                        subtitle: "g",
+                        color: .green,
+                        nutrientType: .fiber,
+                        isSelected: selectedNutrient == .fiber
+                    ) {
+                        selectedNutrient = .fiber
+                    }
+                }
+                
+                SelectableSummaryCard(
+                    title: "Days Tracked",
                     value: "\(dailyData.count)",
                     subtitle: timeRange.rawValue.lowercased(),
-                    color: .purple
-                )
+                    color: .gray,
+                    nutrientType: nil,
+                    isSelected: false
+                ) {
+                    // Non-selectable
+                }
             }
         }
         .padding()
     }
 }
 
-struct SummaryCard: View {
+struct SelectableSummaryCard: View {
     let title: String
     let value: String
     let subtitle: String
     let color: Color
+    let nutrientType: NutrientType?
+    let isSelected: Bool
+    let onTap: () -> Void
     
     var body: some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Text(value)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(color)
-            
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+        Button {
+            onTap()
+        } label: {
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(color)
+                
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(color.opacity(isSelected ? 0.3 : 0.1))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? color : Color.clear, lineWidth: 2)
+            )
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(PlainButtonStyle())
+        .disabled(nutrientType == nil) // Disable "Days Tracked" card
+    }
+}
+
+// MARK: - Single Nutrient Chart
+struct SingleNutrientChart: View {
+    let dailyData: [DailyNutritionData]
+    let userGoals: NutritionGoals?
+    let timeRange: TimeRange
+    let selectedNutrient: NutrientType
+    
+    private var sortedData: [DailyNutritionData] {
+        dailyData.sorted(by: { $0.date < $1.date })
+    }
+    
+    private var goal: Double? {
+        selectedNutrient.getGoal(from: userGoals)
+    }
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("\(selectedNutrient.rawValue) Trend")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(selectedNutrient.color)
+                
+                Spacer()
+                
+                if let goal = goal {
+                    Text("Goal: \(Int(goal))\(selectedNutrient.unit)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal)
+            
+            Chart(sortedData) { dataPoint in
+                BarMark(
+                    x: .value("Date", dataPoint.date, unit: .day),
+                    y: .value(selectedNutrient.rawValue, selectedNutrient.getValue(from: dataPoint))
+                )
+                .foregroundStyle(selectedNutrient.color)
+                .cornerRadius(3)
+                
+                // Goal line
+                if let goal = goal, goal > 0 {
+                    RuleMark(y: .value("Goal", goal))
+                        .foregroundStyle(selectedNutrient.color.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                }
+            }
+            .frame(height: 300)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: getXAxisStride())) { value in
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date, format: .dateTime.month(.abbreviated).day())
+                                .font(.caption2)
+                        }
+                    }
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.3))
+                        .foregroundStyle(.secondary.opacity(0.2))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisValueLabel {
+                        if let doubleValue = value.as(Double.self) {
+                            Text("\(Int(doubleValue))")
+                                .font(.caption2)
+                        }
+                    }
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.3))
+                        .foregroundStyle(.secondary.opacity(0.2))
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: selectedNutrient)
+        }
         .padding()
-        .background(color.opacity(0.1))
+        .background(Color.gray.opacity(0.05))
         .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    private func getXAxisStride() -> Calendar.Component {
+        switch timeRange {
+        case .week: return .day
+        case .month: return .weekOfYear  
+        case .threeMonths: return .month
+        }
     }
 }
 
@@ -308,6 +364,7 @@ struct DailyNutritionData: Identifiable {
     let totalProtein: Double
     let totalCarbs: Double
     let totalFat: Double
+    let totalFiber: Double
     let entryCount: Int
 }
 
@@ -348,6 +405,7 @@ class HistoryViewModelMain: ObservableObject {
                             totalProtein: totalNutrition.protein ?? 0,
                             totalCarbs: totalNutrition.carbohydrates ?? 0,
                             totalFat: totalNutrition.fat ?? 0,
+                            totalFiber: totalNutrition.fiber ?? 0,
                             entryCount: dayEntries.count
                         )
                         
@@ -369,6 +427,52 @@ class HistoryViewModelMain: ObservableObject {
     func loadUserGoals() {
         databaseManager.getUserSettingsAsync { user in
             self.userGoals = user.nutritionGoals
+        }
+    }
+}
+
+// MARK: - Nutrient Types for Chart Selection
+enum NutrientType: String, CaseIterable {
+    case calories = "Calories"
+    case protein = "Protein"
+    case carbs = "Carbs"
+    case fat = "Fat"
+    case fiber = "Fiber"
+    
+    var color: Color {
+        switch self {
+        case .calories: return .blue
+        case .protein: return .red
+        case .carbs: return .green
+        case .fat: return .purple
+        case .fiber: return .orange
+        }
+    }
+    
+    var unit: String {
+        switch self {
+        case .calories: return "kcal"
+        default: return "g"
+        }
+    }
+    
+    func getValue(from data: DailyNutritionData) -> Double {
+        switch self {
+        case .calories: return data.totalCalories
+        case .protein: return data.totalProtein
+        case .carbs: return data.totalCarbs
+        case .fat: return data.totalFat
+        case .fiber: return data.totalFiber
+        }
+    }
+    
+    func getGoal(from goals: NutritionGoals?) -> Double? {
+        switch self {
+        case .calories: return goals?.calorieGoal
+        case .protein: return goals?.proteinGoal
+        case .carbs: return goals?.carbGoal
+        case .fat: return goals?.fatGoal
+        case .fiber: return goals?.fiberGoal
         }
     }
 }

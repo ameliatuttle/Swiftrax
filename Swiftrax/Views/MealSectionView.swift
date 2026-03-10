@@ -156,13 +156,17 @@ struct FoodRowView: View {
         }
         .contextMenu {
             if let onEdit = onEdit {
-                Button(action: onEdit) {
+                Button {
+                    onEdit()
+                } label: {
                     Label("Edit", systemImage: "pencil")
                 }
             }
             
-            Button("Delete", role: .destructive) {
+            Button(role: .destructive) {
                 onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
         .accessibilityElement(children: .combine)

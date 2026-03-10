@@ -24,8 +24,10 @@ struct ManualEntryView: View {
     @State private var validationErrorMessage = ""
     @State private var showingBarcodeScanner = false
    
-   private let screenWidth = UIScreen.main.bounds.width
-   private let screenHeight = UIScreen.main.bounds.height
+
+    
+    private let screenWidth = UIScreen.main.bounds.width
+    private let screenHeight = UIScreen.main.bounds.height
     
     @FocusState private var focusedField: Field?
     
@@ -38,6 +40,7 @@ struct ManualEntryView: View {
     private let commonUnits: [MeasurementUnit] = [
         .grams, .ounces, .cups, .tablespoons, .teaspoons, .pieces, .servings
     ]
+
     
     var body: some View {
         NavigationView {
@@ -86,12 +89,12 @@ struct ManualEntryView: View {
                                 focusedField = .servingSize
                             }
                         
-                        Button(action: {
+                        Button {
                             focusedField = nil
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 showingBarcodeScanner = true
                             }
-                        }) {
+                        } label: {
                             Image(systemName: "barcode.viewfinder")
                                 .foregroundColor(.blue)
                                 .font(.title3)
@@ -131,12 +134,12 @@ struct ManualEntryView: View {
                                 focusedField = .calories
                             }
                         
-                        Button(action: {
+                        Button {
                             focusedField = nil
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 showingUnitPicker = true
                             }
-                        }) {
+                        } label: {
                             HStack(spacing: 4) {
                                 Text(servingUnit.displayName)
                                     .foregroundColor(.primary)
@@ -295,6 +298,12 @@ struct ManualEntryView: View {
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+                
                 ToolbarItemGroup(placement: .keyboard) {
                     HStack {
                         Button("Previous") {
@@ -316,9 +325,13 @@ struct ManualEntryView: View {
                 }
             }
             .onAppear {
+                clearForm()
                 Task { @MainActor in
                     validateForm()
                 }
+            }
+            .onDisappear {
+                clearForm()
             }
             .onChange(of: foodName) { _ in validateFormAsync() }
             .onChange(of: servingSize) { _ in validateFormAsync() }
@@ -330,11 +343,11 @@ struct ManualEntryView: View {
             NavigationView {
                 List {
                     ForEach(MeasurementUnit.allCases, id: \.self) { unit in
-                        Button(action: {
+                        Button {
                             servingUnit = unit
                             showingUnitPicker = false
                             validateFormAsync()
-                        }) {
+                        } label: {
                             HStack {
                                 Text(unit.displayName)
                                 Spacer()
@@ -358,7 +371,7 @@ struct ManualEntryView: View {
         }
         .alert("Food Added Successfully!", isPresented: $showingSuccessAlert) {
             Button("Add Another") {
-                clearForm()
+                // Form is already cleared, just dismiss the alert
             }
             Button("Done") {
                 presentationMode.wrappedValue.dismiss()
@@ -511,6 +524,7 @@ struct ManualEntryView: View {
         )
         
         print("Saving custom food: \(food.name) to database")
+        
         if let foodBarcode = food.barcode {
             print("Food has barcode: \(foodBarcode) - will be scannable in the future")
         }
@@ -534,12 +548,15 @@ struct ManualEntryView: View {
                                 
                                 NotificationCenter.default.post(name: NSNotification.Name("FoodEntryAdded"), object: nil)
                                 
-                                let barcodeMessage = !barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
+                                let barcodeMessage = !self.barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
                                     ? " You can now find this food by scanning its barcode!"
                                     : ""
                                 
                                 self.successMessage = "\(savedFoodName) has been added to your \(savedMealType.rawValue.lowercased())!\(barcodeMessage)"
                                 self.showingSuccessAlert = true
+                                
+                                // Clear the form after successful save, but keep meal type
+                                self.clearForm(preserveMealType: true)
                             } else {
                                 self.validationErrorMessage = "Failed to save food entry. Please try again."
                                 self.showingValidationError = true
@@ -555,8 +572,10 @@ struct ManualEntryView: View {
     }
     
     // Resets all form fields to empty state
-    private func clearForm() {
+    private func clearForm(preserveMealType: Bool = false) {
         Task { @MainActor in
+            let currentMealType = mealType
+            
             foodName = ""
             brand = ""
             barcode = ""
@@ -570,6 +589,12 @@ struct ManualEntryView: View {
             sodium = ""
             validationErrorMessage = ""
             focusedField = .foodName
+            
+            // Preserve meal type if requested (for consecutive additions)
+            if preserveMealType {
+                mealType = currentMealType
+            }
+            
             validateForm()
         }
     }

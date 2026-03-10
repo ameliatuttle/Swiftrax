@@ -41,19 +41,26 @@ struct ContentView: View {
                     }
                     .tag(3)
                 
+                ShoppingListView()
+                    .tabItem {
+                        Image(systemName: "cart.fill")
+                        Text("Shopping")
+                    }
+                    .tag(4)
+                
                 HistoryView()
                     .tabItem {
                         Image(systemName: "clock.fill")
                         Text("History")
                     }
-                    .tag(4)
+                    .tag(5)
                 
                 SettingsView()
                     .tabItem {
                         Image(systemName: "gear")
                         Text("Settings")
                     }
-                    .tag(5)
+                    .tag(6)
             }
             .background(Color.appBackground)
         }

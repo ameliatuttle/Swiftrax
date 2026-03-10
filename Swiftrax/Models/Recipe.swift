@@ -8,12 +8,40 @@ struct Recipe: Identifiable, Codable, Equatable {
     let dateCreated: Date
     let isCustom: Bool = true
     
-    init(name: String, servings: Int, ingredients: [RecipeIngredient] = []) {
+    // New: Optional serving weight specification
+    var servingWeight: Double? // Weight per serving in grams
+    var servingWeightUnit: MeasurementUnit? // Unit for serving weight
+    
+    init(name: String, servings: Int, ingredients: [RecipeIngredient] = [], servingWeight: Double? = nil, servingWeightUnit: MeasurementUnit? = nil) {
         self.id = UUID()
         self.name = name
         self.servings = servings
         self.ingredients = ingredients
         self.dateCreated = Date()
+        self.servingWeight = servingWeight
+        self.servingWeightUnit = servingWeightUnit
+    }
+    
+    // Copy initializer for editing existing recipes
+    init(from existing: Recipe, name: String, servings: Int, ingredients: [RecipeIngredient], servingWeight: Double?, servingWeightUnit: MeasurementUnit?) {
+        self.id = existing.id
+        self.name = name
+        self.servings = servings
+        self.ingredients = ingredients
+        self.dateCreated = existing.dateCreated
+        self.servingWeight = servingWeight
+        self.servingWeightUnit = servingWeightUnit
+    }
+    
+    // Database initializer for reconstructing recipes from database data (preserves ID and date)
+    init(id: UUID, name: String, servings: Int, ingredients: [RecipeIngredient], dateCreated: Date, servingWeight: Double?, servingWeightUnit: MeasurementUnit?) {
+        self.id = id
+        self.name = name
+        self.servings = servings
+        self.ingredients = ingredients
+        self.dateCreated = dateCreated
+        self.servingWeight = servingWeight
+        self.servingWeightUnit = servingWeightUnit
     }
     
     // Calculate total nutrition for entire recipe
@@ -68,11 +96,23 @@ struct Recipe: Identifiable, Codable, Equatable {
     
     // Convert recipe to a Food object for logging to meals
     func asFood() -> Food {
+        let servingSize: Double
+        let servingUnit: String
+        
+        if let weight = servingWeight, let unit = servingWeightUnit {
+            servingSize = weight
+            servingUnit = unit.abbreviation
+        } else {
+            // Default to 1 serving if no weight specified
+            servingSize = 1.0
+            servingUnit = "serving"
+        }
+        
         var food = Food(
             name: name,
             nutritionInfo: nutritionPerServing,
-            servingSize: 1.0,
-            servingSizeUnit: "serving",
+            servingSize: servingSize,
+            servingSizeUnit: servingUnit,
             brand: "Recipe",
             isCustom: true
         )
@@ -85,16 +125,38 @@ struct RecipeIngredient: Identifiable, Codable, Equatable {
     let id: UUID
     let food: Food
     var quantity: Double
+    var unit: MeasurementUnit // New: allows different units for recipe ingredients
     
-    init(food: Food, quantity: Double) {
+    init(food: Food, quantity: Double, unit: MeasurementUnit? = nil) {
         self.id = UUID()
         self.food = food
         self.quantity = quantity
+        // Default to the food's original unit if none specified
+        self.unit = unit ?? (MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams)
+    }
+    
+    // Database initializer for reconstructing ingredients from database data (preserves ID)
+    init(id: UUID, food: Food, quantity: Double, unit: MeasurementUnit) {
+        self.id = id
+        self.food = food
+        self.quantity = quantity
+        self.unit = unit
     }
     
     // Calculate nutrition contribution of this ingredient to the recipe
     var nutritionContribution: NutritionInfo {
-        let scaleFactor = quantity / food.servingSize
+        // Convert ingredient quantity to food's base unit for calculation
+        let foodOriginalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        
+        let convertedQuantity: Double
+        if let converted = UnitConverter.shared.convert(value: quantity, from: unit, to: foodOriginalUnit) {
+            convertedQuantity = converted
+        } else {
+            // If conversion fails, assume same quantity (for count units, etc.)
+            convertedQuantity = quantity
+        }
+        
+        let scaleFactor = convertedQuantity / food.servingSize
         let baseNutrition = food.nutritionInfo
         
         return NutritionInfo(
@@ -106,5 +168,10 @@ struct RecipeIngredient: Identifiable, Codable, Equatable {
             sugar: (baseNutrition.sugar ?? 0) * scaleFactor,
             sodium: (baseNutrition.sodium ?? 0) * scaleFactor
         )
+    }
+    
+    // Display text for this ingredient
+    var displayText: String {
+        return "\(quantity.formattedNutrition) \(unit.abbreviation)"
     }
 }

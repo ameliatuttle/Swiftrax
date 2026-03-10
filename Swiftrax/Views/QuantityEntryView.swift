@@ -11,7 +11,8 @@ struct QuantityEntryView: View {
     @State private var showingUnitPicker = false
     @State private var isConverting = false
     @State private var showingConversionHelper = false
-    @State private var showingSourcesInfo = false // Add this line
+    @State private var showingSourcesInfo = false
+
     
     @Environment(\.presentationMode) var presentationMode
     
@@ -29,6 +30,20 @@ struct QuantityEntryView: View {
         self._selectedUnit = State(initialValue: originalUnit)
         self._selectedMealType = State(initialValue: mealType) // Use mealType here
         self._quantity = State(initialValue: UnitConversionHelper.formatQuantity(food.servingSize))
+    }
+    
+    // Initializer with prefilled quantity (for recent entries)
+    init(food: Food, mealType: MealType, prefilledQuantity: Double, onSave: @escaping (Double, MeasurementUnit, MealType) -> Void) {
+        self.food = food
+        self.initialMealType = mealType
+        self.onSave = onSave
+        
+        self.originalUnit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        self.suggestedUnits = UnitConverter.shared.getSuggestedUnits(for: food)
+        
+        self._selectedUnit = State(initialValue: originalUnit)
+        self._selectedMealType = State(initialValue: mealType)
+        self._quantity = State(initialValue: UnitConversionHelper.formatQuantity(prefilledQuantity))
     }
     
     var calculatedNutrition: NutritionInfo {
@@ -89,18 +104,13 @@ struct QuantityEntryView: View {
                         selectedMealType: $selectedMealType
                     )
                    
-                   if let servings = numberOfServings {
-                      Text("≈ \(String(format: "%.2f", servings)) servings")
-                           .font(.subheadline)
-                           .foregroundColor(.secondary)
-                   }
-                   
                     ImprovedQuantityInputSection(
                         quantity: $quantity,
                         selectedUnit: $selectedUnit,
                         showingUnitPicker: $showingUnitPicker,
                         suggestedUnits: suggestedUnits,
                         originalUnit: originalUnit,
+                        numberOfServings: numberOfServings,
                         onUnitChanged: { unit in handleUnitChange(to: unit) }
                     )
                    
@@ -161,6 +171,7 @@ struct QuantityEntryView: View {
                             onShowSources: { showingSourcesInfo = true }
                         )
                     }
+
                     
                     Spacer(minLength: 20)
                 }
@@ -192,8 +203,9 @@ struct QuantityEntryView: View {
             )
         }
         .sheet(isPresented: $showingSourcesInfo) {
-            NutritionSourcesView()
+            SearchLogView.NutritionSourcesView()
         }
+
     }
     
     // Updates selected unit and sets appropriate default quantity
@@ -336,14 +348,22 @@ struct ImprovedQuantityInputSection: View {
     
     let suggestedUnits: [MeasurementUnit]
     let originalUnit: MeasurementUnit
+    let numberOfServings: Double?
     let onUnitChanged: (MeasurementUnit) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("How much are you eating?")
-                .font(.headline)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.adaptiveText)
+            if let servings = numberOfServings {
+                Text("≈ \(String(format: "%.2f", servings)) servings")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("How much are you eating?")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(Color.adaptiveText)
+            }
             
             HStack(spacing: 12) {
                 HStack {
@@ -388,67 +408,10 @@ struct ImprovedQuantityInputSection: View {
                     .cornerRadius(12)
                 }
             }
-            
-            if suggestedUnits.count > 1 {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Quick units:")
-                        .font(.caption)
-                        .foregroundColor(Color.adaptiveSecondaryText)
-                    
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(suggestedUnits.prefix(5), id: \.self) { unit in
-                                QuickUnitButton(
-                                    unit: unit,
-                                    isSelected: unit == selectedUnit,
-                                    isOriginal: unit == originalUnit
-                                ) {
-                                    onUnitChanged(unit)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                }
-            }
         }
         .padding()
         .background(Color.fillSecondary.opacity(0.5))
         .cornerRadius(12)
-    }
-}
-
-struct QuickUnitButton: View {
-    let unit: MeasurementUnit
-    let isSelected: Bool
-    let isOriginal: Bool
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 4) {
-                Text(unit.abbreviation)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                
-                if isOriginal {
-                    Text("original")
-                        .font(.caption2)
-                        .foregroundColor(Color.adaptiveSecondaryText)
-                } else {
-                    Text(unit.displayName)
-                        .font(.caption2)
-                        .foregroundColor(Color.adaptiveSecondaryText)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(isSelected ? Color.primaryAccent : Color.fillSecondary)
-            .foregroundColor(isSelected ? .white : Color.adaptiveText)
-            .cornerRadius(8)
-        }
-        .disabled(isSelected)
     }
 }
 

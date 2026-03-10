@@ -386,15 +386,6 @@ enum NutritionMetric: String, CaseIterable {
     }
 }
 
-extension DatabaseManager {
-    func searchFoodsAsync(query: String) async -> [Food] {
-        return await withCheckedContinuation { (continuation: CheckedContinuation<[Food], Never>) in
-            self.searchFoodsWithFuzzyMatching(query: query) { (results: [Food]) in
-                continuation.resume(returning: results)
-            }
-        }
-    }
-}
 
 extension View {
     func hideKeyboard() {
@@ -514,13 +505,13 @@ struct DigitalRollerPicker: View {
         let decimal = Double(decimalSteps[decimalSelection]) / 100.0
         let newValue = Double(wholeNumberSelection) + decimal
         
-        // Subtle haptic feedback - much lighter
-        if #available(iOS 17.0, *) {
-            let impactFeedback = UIImpactFeedbackGenerator(style: .soft)
-            impactFeedback.impactOccurred(intensity: 0.3)
-        } else {
-            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-            impactFeedback.impactOccurred()
+        // Only provide haptic feedback if the device supports it and it's enabled
+        if UIAccessibility.isReduceMotionEnabled == false {
+            Task { @MainActor in
+                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                impactFeedback.prepare()
+                impactFeedback.impactOccurred()
+            }
         }
         
         value = newValue
@@ -633,13 +624,13 @@ struct CompactDigitalRollerPicker: View {
         let decimal = Double(decimalSteps[decimalSelection]) / 10.0
         let newValue = Double(wholeNumberSelection) + decimal
         
-        // Subtle haptic feedback
-        if #available(iOS 17.0, *) {
-            let impactFeedback = UIImpactFeedbackGenerator(style: .soft)
-            impactFeedback.impactOccurred(intensity: 0.2)
-        } else {
-            let selectionFeedback = UISelectionFeedbackGenerator()
-            selectionFeedback.selectionChanged()
+        // Only provide haptic feedback if motion isn't reduced
+        if UIAccessibility.isReduceMotionEnabled == false {
+            Task { @MainActor in
+                let selectionFeedback = UISelectionFeedbackGenerator()
+                selectionFeedback.prepare()
+                selectionFeedback.selectionChanged()
+            }
         }
         
         value = newValue
@@ -677,6 +668,8 @@ extension Food {
     var measurementUnit: MeasurementUnit {
         return MeasurementUnit(rawValue: servingSizeUnit) ?? .grams
     }
+    
+
     
     /// Validates that the food has reasonable data
     var isValid: Bool {
@@ -841,5 +834,72 @@ extension FoodEntry {
     
     var compatibleUnits: [MeasurementUnit] {
         return originalUnit.category.units
+    }
+}
+
+// MARK: - Recipe Backward Compatibility Extensions
+extension RecipeIngredient {
+    // Custom decoder to handle legacy data without unit field
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(UUID.self, forKey: .id)
+        food = try container.decode(Food.self, forKey: .food)
+        quantity = try container.decode(Double.self, forKey: .quantity)
+        
+        // Handle backward compatibility for unit field
+        if let unitString = try container.decodeIfPresent(String.self, forKey: .unit),
+           let parsedUnit = MeasurementUnit(rawValue: unitString) {
+            unit = parsedUnit
+        } else {
+            // Legacy recipe: use food's original unit
+            unit = MeasurementUnit(rawValue: food.servingSizeUnit) ?? .grams
+        }
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, food, quantity, unit
+    }
+}
+
+extension Recipe {
+    // Custom decoder to handle legacy data without serving weight fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        servings = try container.decode(Int.self, forKey: .servings)
+        ingredients = try container.decode([RecipeIngredient].self, forKey: .ingredients)
+        dateCreated = try container.decode(Date.self, forKey: .dateCreated)
+        
+        // Handle backward compatibility for new fields
+        servingWeight = try container.decodeIfPresent(Double.self, forKey: .servingWeight)
+        if let unitString = try container.decodeIfPresent(String.self, forKey: .servingWeightUnit),
+           let parsedUnit = MeasurementUnit(rawValue: unitString) {
+            servingWeightUnit = parsedUnit
+        } else {
+            servingWeightUnit = servingWeight != nil ? .grams : nil
+        }
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, servings, ingredients, dateCreated
+        case servingWeight, servingWeightUnit
+    }
+}
+
+// MARK: - Recipe Extensions
+extension Recipe {
+    /// Creates a copy of the recipe for editing purposes
+    func editingCopy() -> Recipe {
+        return Recipe(
+            from: self,
+            name: self.name,
+            servings: self.servings,
+            ingredients: self.ingredients,
+            servingWeight: self.servingWeight,
+            servingWeightUnit: self.servingWeightUnit
+        )
     }
 }

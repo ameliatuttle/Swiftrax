@@ -5,6 +5,7 @@ struct RecipesView: View {
     @StateObject private var viewModel = RecipesViewModel()
     @State private var showingCreateRecipe = false
     @State private var searchText = ""
+    @State private var editingRecipe: Recipe? = nil
    
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
@@ -60,9 +61,11 @@ struct RecipesView: View {
                 } else {
                     List {
                         ForEach(filteredRecipes) { recipe in
-                            RecipeRow(recipe: recipe) {
+                            RecipeRow(recipe: recipe, onEdit: {
+                                editingRecipe = recipe
+                            }, onDelete: {
                                 viewModel.deleteRecipe(recipe)
-                            }
+                            })
                         }
                     }
                     .listStyle(PlainListStyle())
@@ -71,6 +74,11 @@ struct RecipesView: View {
             .navigationTitle("Recipes")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
+                leading: Button("Debug") {
+                    // Debug menu for troubleshooting
+                    viewModel.validateSync()
+                    viewModel.performDatabaseCleanup()
+                },
                 trailing: Button(action: {
                     showingCreateRecipe = true
                 }) {
@@ -80,14 +88,41 @@ struct RecipesView: View {
             .onAppear {
                 viewModel.loadRecipes()
             }
+            .refreshable {
+                // Add pull-to-refresh functionality
+                viewModel.forceRefresh()
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showingCreateRecipe) {
             RecipeCreationView()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("RecipeCreated"))) { _ in
-            viewModel.loadRecipes()
+        .sheet(item: $editingRecipe) { recipe in
+            RecipeCreationView(editingRecipe: recipe)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("RecipeCreated"))) { notification in
+            if let recipe = notification.object as? Recipe {
+                print("Received RecipeCreated notification for: \(recipe.name) (ID: \(recipe.id))")
+                viewModel.addRecipe(recipe)
+            } else {
+                print("Received RecipeCreated notification without recipe object, reloading all")
+                viewModel.loadRecipes()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("RecipeUpdated"))) { notification in
+            if let recipe = notification.object as? Recipe {
+                print("Received RecipeUpdated notification for: \(recipe.name) (ID: \(recipe.id))")
+                viewModel.updateRecipe(recipe)
+            } else {
+                print("Received RecipeUpdated notification without recipe object, reloading all")
+                viewModel.loadRecipes()
+            }
+            
+            // Always validate sync after updates to catch any issues
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                viewModel.validateSync()
+            }
         }
     }
 }
@@ -136,6 +171,7 @@ struct EmptyRecipesView: View {
 // Individual recipe row in the list
 struct RecipeRow: View {
     let recipe: Recipe
+    let onEdit: () -> Void
     let onDelete: () -> Void
     @State private var showingDetail = false
     
@@ -178,8 +214,32 @@ struct RecipeRow: View {
             }
             .padding(.vertical, 4)
         }
+        .onLongPressGesture {
+            // Provide haptic feedback
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+            
+            // Trigger edit
+            onEdit()
+        }
         .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            Button(action: {
+                onEdit()
+            }) {
+                Label("Edit Recipe", systemImage: "pencil")
+            }
+            
+            Button(action: {
+                onDelete()
+            }) {
+                Label("Delete Recipe", systemImage: "trash")
+            }
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("Edit", action: onEdit)
+                .tint(.orange)
+            
             Button("Delete", role: .destructive) {
                 onDelete()
             }
@@ -194,6 +254,8 @@ struct RecipeRow: View {
 struct RecipeDetailView: View {
     let recipe: Recipe
     @State private var showingLogOptions = false
+    @State private var showingEditRecipe = false
+    @State private var showingShoppingListOptions = false
     @Environment(\.presentationMode) var presentationMode
     
     var body: some View {
@@ -257,6 +319,22 @@ struct RecipeDetailView: View {
                     }
                     .padding(.horizontal)
                     
+                    Button(action: {
+                        showingShoppingListOptions = true
+                    }) {
+                        HStack {
+                            Image(systemName: "cart.badge.plus")
+                            Text("Create Shopping List")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.green)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+                    
                     Spacer(minLength: 20)
                 }
             }
@@ -265,11 +343,20 @@ struct RecipeDetailView: View {
             .navigationBarItems(
                 leading: Button("Done") {
                     presentationMode.wrappedValue.dismiss()
+                },
+                trailing: Button("Edit") {
+                    showingEditRecipe = true
                 }
             )
         }
         .sheet(isPresented: $showingLogOptions) {
             LogRecipeView(recipe: recipe)
+        }
+        .sheet(isPresented: $showingEditRecipe) {
+            RecipeCreationView(editingRecipe: recipe)
+        }
+        .sheet(isPresented: $showingShoppingListOptions) {
+            ShoppingListCreationFromRecipeView(recipe: recipe)
         }
     }
 }
@@ -449,18 +536,313 @@ class RecipesViewModel: ObservableObject {
     func loadRecipes() {
         isLoading = true
         print("Loading recipes from database")
-        DatabaseManager.shared.getRecipesAsync { recipes in
+        
+        // Debug: List what's actually in the database
+        DatabaseManager.shared.debugListAllRecipesAsync()
+        
+        DatabaseManager.shared.getRecipesAsync { [weak self] recipes in
             print("Loaded \(recipes.count) recipes")
-            self.recipes = recipes.sorted { $0.dateCreated > $1.dateCreated }
-            self.isLoading = false
+            for recipe in recipes {
+                print("📋 Loaded recipe: '\(recipe.name)' with ID: \(recipe.id)")
+            }
+            DispatchQueue.main.async {
+                self?.recipes = recipes.sorted { $0.dateCreated > $1.dateCreated }
+                self?.isLoading = false
+                print("✅ Recipe loading completed. UI has \(self?.recipes.count ?? 0) recipes")
+            }
+        }
+    }
+    
+    // Adds a new recipe to the local list
+    func addRecipe(_ recipe: Recipe) {
+        print("Adding new recipe to list: \(recipe.name) (ID: \(recipe.id))")
+        
+        // Make sure we don't add duplicates
+        if recipes.contains(where: { $0.id == recipe.id }) {
+            print("Recipe already exists in list, updating instead")
+            updateRecipe(recipe)
+            return
+        }
+        
+        recipes.insert(recipe, at: 0) // Add to beginning since we sort by date created (newest first)
+        print("Recipe added successfully. Total recipes: \(recipes.count)")
+    }
+    
+    // Updates an existing recipe in the local list
+    func updateRecipe(_ updatedRecipe: Recipe) {
+        print("Updating recipe in list: \(updatedRecipe.name) with ID: \(updatedRecipe.id)")
+        
+        if let index = recipes.firstIndex(where: { $0.id == updatedRecipe.id }) {
+            print("Found recipe at index \(index), updating in place")
+            recipes[index] = updatedRecipe
+            print("Recipe updated successfully")
+        } else {
+            print("Recipe not found in list with ID \(updatedRecipe.id)")
+            print("Available recipe IDs: \(recipes.map { $0.id.uuidString })")
+            print("Adding as new recipe instead")
+            addRecipe(updatedRecipe)
         }
     }
     
     // Deletes recipe from local list and database
     func deleteRecipe(_ recipe: Recipe) {
-        recipes.removeAll { $0.id == recipe.id }
-        DatabaseManager.shared.deleteRecipeAsync(recipe) {
-            print("Recipe deleted from database")
+        print("🗑️ DELETE REQUEST: Recipe '\(recipe.name)' with ID: \(recipe.id)")
+        print("🗑️ Local recipes before deletion: \(recipes.count)")
+        for (index, localRecipe) in recipes.enumerated() {
+            let match = localRecipe.id == recipe.id ? " ✅" : ""
+            print("  [\(index)] \(localRecipe.name) - \(localRecipe.id)\(match)")
         }
+        
+        // Check if recipe exists in local list first
+        guard let existingRecipe = recipes.first(where: { $0.id == recipe.id }) else {
+            print("❌ Recipe not found in local list!")
+            print("Available recipe IDs: \(recipes.map { "\($0.name): \($0.id.uuidString)" })")
+            // Try to reload recipes to fix sync issue
+            loadRecipes()
+            return
+        }
+        
+        print("✅ Recipe found in local list, proceeding with deletion")
+        
+        // Remove from local list immediately to provide responsive UI
+        recipes.removeAll { $0.id == recipe.id }
+        print("Recipe removed from local list. Remaining: \(recipes.count)")
+        
+        // Then delete from database
+        DatabaseManager.shared.deleteRecipeAsync(existingRecipe) {
+            print("Recipe deletion completed from database")
+            // If deletion failed, we might want to reload to restore consistency
+            // For now, we trust the database operation succeeded
+        }
+    }
+    
+    // Force refresh recipes from database to fix sync issues
+    func forceRefresh() {
+        print("🔄 Force refreshing recipes from database to fix sync issues")
+        loadRecipes()
+    }
+    
+    // Helper method to check if local list is in sync with database
+    func validateSync() {
+        print("🔍 Validating recipe list sync...")
+        DatabaseManager.shared.getRecipesAsync { [weak self] dbRecipes in
+            DispatchQueue.main.async {
+                let localCount = self?.recipes.count ?? 0
+                let dbCount = dbRecipes.count
+                
+                print("📊 Sync check: Local=\(localCount), Database=\(dbCount)")
+                
+                // Check for detailed differences
+                let localIds = Set(self?.recipes.map { $0.id } ?? [])
+                let dbIds = Set(dbRecipes.map { $0.id })
+                
+                let onlyInLocal = localIds.subtracting(dbIds)
+                let onlyInDb = dbIds.subtracting(localIds)
+                
+                if !onlyInLocal.isEmpty {
+                    print("⚠️ Recipes only in UI (stale): \(onlyInLocal)")
+                    // Remove stale recipes from UI
+                    self?.recipes.removeAll { onlyInLocal.contains($0.id) }
+                    print("🧹 Removed \(onlyInLocal.count) stale recipes from UI")
+                }
+                
+                if !onlyInDb.isEmpty {
+                    print("⚠️ Recipes only in database (missing from UI): \(onlyInDb)")
+                    // Add missing recipes to UI
+                    let missingRecipes = dbRecipes.filter { onlyInDb.contains($0.id) }
+                    self?.recipes.append(contentsOf: missingRecipes)
+                    self?.recipes = (self?.recipes ?? []).sorted { $0.dateCreated > $1.dateCreated }
+                    print("➕ Added \(missingRecipes.count) missing recipes to UI")
+                }
+                
+                if localCount != dbCount || !onlyInLocal.isEmpty || !onlyInDb.isEmpty {
+                    print("🔄 Sync issues detected and fixed!")
+                } else {
+                    print("✅ Recipe list is perfectly in sync")
+                }
+            }
+        }
+    }
+    
+    // Clean up database and refresh
+    func performDatabaseCleanup() {
+        print("🧹 Performing database cleanup...")
+        DatabaseManager.shared.cleanupRecipesDatabase()
+        
+        // Refresh after cleanup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.forceRefresh()
+        }
+    }
+}
+
+// MARK: - Shopping List Creation From Recipe View
+struct ShoppingListCreationFromRecipeView: View {
+    let recipe: Recipe
+    @Environment(\.presentationMode) var presentationMode
+    @State private var listName: String = ""
+    @State private var selectedIngredients: Set<UUID> = [] // Changed to track ingredient IDs
+    @State private var isCreating = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Create Shopping List")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Create a shopping list from \"\(recipe.name)\" ingredients")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("List Name")
+                        .font(.headline)
+                    
+                    TextField("Enter list name", text: $listName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                .padding(.horizontal)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Select Ingredients")
+                        .font(.headline)
+                    
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(recipe.ingredients) { ingredient in
+                                IngredientSelectionRow(
+                                    ingredient: ingredient,
+                                    isSelected: selectedIngredients.contains(ingredient.id),
+                                    onToggle: {
+                                        if selectedIngredients.contains(ingredient.id) {
+                                            selectedIngredients.remove(ingredient.id)
+                                        } else {
+                                            selectedIngredients.insert(ingredient.id)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                Button {
+                    createShoppingList()
+                } label: {
+                    if isCreating {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Create Shopping List")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(canCreateList ? Color.blue : Color.gray)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .disabled(!canCreateList || isCreating)
+                .padding(.horizontal)
+            }
+            .navigationTitle("New Shopping List")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear {
+            // Initialize with recipe name and select all ingredients
+            if listName.isEmpty {
+                listName = "\(recipe.name) Shopping List"
+            }
+            selectedIngredients = Set(recipe.ingredients.map { $0.id })
+        }
+    }
+    
+    private var canCreateList: Bool {
+        !listName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedIngredients.isEmpty
+    }
+    
+    private func createShoppingList() {
+        guard canCreateList else { return }
+        
+        isCreating = true
+        
+        let shoppingListViewModel = ShoppingListViewModel.shared
+        var newList = ShoppingList(name: listName.trimmingCharacters(in: .whitespacesAndNewlines))
+        
+        // Add selected ingredients as shopping list items
+        let selectedRecipeIngredients = recipe.ingredients.filter { selectedIngredients.contains($0.id) }
+        
+        for recipeIngredient in selectedRecipeIngredients {
+            let category = ShoppingCategory.categorizeIngredient(recipeIngredient.food.name)
+            let item = ShoppingListItem(
+                name: recipeIngredient.food.name,
+                quantity: recipeIngredient.quantity,
+                unit: recipeIngredient.unit,
+                category: category,
+                notes: "From \(recipe.name)"
+            )
+            newList.items.append(item)
+        }
+        
+        // Update the modified date since we added items
+        newList.updateModifiedDate()
+        
+        // Save the shopping list using the correct method
+        shoppingListViewModel.saveShoppingList(newList)
+        
+        // Dismiss the view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            isCreating = false
+            presentationMode.wrappedValue.dismiss()
+        }
+    }
+}
+
+// MARK: - Ingredient Selection Row Helper View
+struct IngredientSelectionRow: View {
+    let ingredient: RecipeIngredient
+    let isSelected: Bool
+    let onToggle: () -> Void
+    
+    var body: some View {
+        HStack {
+            Button {
+                onToggle()
+            } label: {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? .blue : .gray)
+                    .font(.title2)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ingredient.food.name)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.body)
+                
+                Text("\(ingredient.quantity.formattedNutrition) \(ingredient.unit.abbreviation)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(8)
     }
 }
